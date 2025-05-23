@@ -1,7 +1,7 @@
-python-telegram-bot==20.5
-google-generativeai==0.3.2
-supabase==2.3.0
-fastapi==0.109.0
-uvicorn==0.25.0
-aiohttp==3.9.1
-python-dotenv==1.0.0
+python-telegram-bot
+google-generativeai
+supabase
+fastapi
+uvicorn
+aiohttp
+python-dotenv
