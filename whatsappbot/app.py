@@ -1,5 +1,5 @@
 """
-src/app_windows.py - Windows-compatible version of the WhatsApp application bot
+src/app.py - Windows-compatible version of the WhatsApp application bot
 """
 import os
 import re
@@ -8,8 +8,6 @@ import logging
 import datetime
 from typing import Dict, Any, Optional, List
 import uuid
-import hashlib # For Calendly webhook signature verification
-import hmac    # For Calendly webhook signature verification
 
 # WhatsApp API integration
 from heyoo import WhatsApp
@@ -25,9 +23,6 @@ from werkzeug.utils import secure_filename
 
 # For Gemini API
 import google.generativeai as genai
-
-# For Calendly API
-from calendly import Calendly
 
 # For Windows compatibility
 from waitress import serve
@@ -60,20 +55,14 @@ supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Initialize Calendly client
-CALENDLY_PERSONAL_ACCESS_TOKEN = os.environ.get("CALENDLY_PERSONAL_ACCESS_TOKEN")
-CALENDLY_WEBHOOK_SIGNING_KEY = os.environ.get("CALENDLY_WEBHOOK_SIGNING_KEY") # You'll get this when you create a webhook
-calendly_client = Calendly(CALENDLY_PERSONAL_ACCESS_TOKEN)
-CALENDLY_WEBHOOK_URL = os.environ.get("CALENDLY_WEBHOOK_URL") # e.g., https://your-app-url.com/calendly-webhook
-
 # Add a root endpoint to check if server is running
 @app.route("/", methods=["GET"])
 def root():
     """Root endpoint to check if the server is running"""
     return jsonify({"message": "Job Application Bot is running!"})
 
-# Calendly and office information
-CALENDLY_LINK = os.environ.get("CALENDLY_LINK", "https://calendly.com/your-company/job-interview")
+# Interview scheduling and office information
+INTERVIEW_LINK_BASE = os.environ.get("INTERVIEW_LINK_BASE", "https://your-company.com/interview")
 OFFICE_DIRECTIONS = """
 Our office is located at:
 123 Business Street
@@ -98,15 +87,15 @@ STEPS = {
     "request_resume": "request_form",
     "request_form": "waiting_review",
     "waiting_review": "request_interview_details",  # Ask for Name/NRIC after approval
-    "request_interview_details": "waiting_calendly_booking", # Name/NRIC collected, Calendly link sent
-    "waiting_calendly_booking": "confirmation", # Calendly webhook received, booking confirmed
+    "request_interview_details": "waiting_interview_booking", # Name/NRIC collected, interview link sent
+    "waiting_interview_booking": "confirmation", # Interview booked, booking confirmed
     "confirmation": "completed"
 }
 
 # Gemini model configurations for each step
 GEMINI_MODELS = {
     "confirm_intent": {
-        "model_name": "gemini-1.5-flash-latest", # Updated model
+        "model_name": "gemini-2.5-flash-preview-05-20",
         "temperature": 0.2,
         "instructions": """
         You are an HR assistant for job applications. Your job is to determine if the user intends to apply for a job.
@@ -164,7 +153,7 @@ GEMINI_MODELS = {
         """
     },
     "request_resume": {
-        "model_name": "gemini-1.5-flash-latest", # Updated model
+        "model_name": "gemini-2.5-flash-preview-05-20", 
         "temperature": 0.1,
         "instructions": """
         You are an HR assistant handling job applications. Your role is to help users upload their resume.
@@ -181,8 +170,8 @@ GEMINI_MODELS = {
         Keep your responses professional and helpful.
         """
     },
-    "request_interview_details": { # Renamed from schedule_interview, focused on Name/NRIC
-        "model_name": "gemini-1.5-flash-latest", # Updated model
+    "request_interview_details": {
+        "model_name": "gemini-2.5-flash-preview-05-20",
         "temperature": 0.1,
         "instructions": """
         You are an HR assistant. The applicant has been approved for an interview.
@@ -215,46 +204,8 @@ GEMINI_MODELS = {
 }
 
 class ApplicationBot:
-    def __init__(self, supabase_client: Client, calendly_client_instance: Calendly):
+    def __init__(self, supabase_client: Client):
         self.db = supabase_client
-        self.calendly = calendly_client_instance
-
-    def _create_calendly_webhook(self):
-        """Creates a Calendly webhook subscription if it doesn't already exist."""
-        if not CALENDLY_WEBHOOK_URL or not CALENDLY_WEBHOOK_SIGNING_KEY:
-            logger.warning("Calendly webhook URL or signing key not configured. Skipping webhook creation.")
-            return
-
-        try:
-            user = self.calendly.get_current_user()
-            user_uri = user["resource"]["uri"]
-            organization_uri = user["resource"]["current_organization"]
-
-            subscriptions = self.calendly.list_webhook_subscriptions(organization=organization_uri, scope="organization")
-            
-            webhook_exists = False
-            for sub in subscriptions.get("collection", []):
-                if sub["callback_url"] == CALENDLY_WEBHOOK_URL and "invitee.created" in sub["events"]:
-                    logger.info(f"Calendly webhook for invitee.created already exists for {CALENDLY_WEBHOOK_URL}")
-                    webhook_exists = True
-                    # Optionally, update the signing key if it's different, though Calendly API might not allow direct update of signing key.
-                    # Usually, you set the signing key once during creation or get it from Calendly.
-                    break
-            
-            if not webhook_exists:
-                logger.info(f"Creating Calendly webhook for invitee.created to {CALENDLY_WEBHOOK_URL}")
-                self.calendly.create_webhook_subscription(
-                    url=CALENDLY_WEBHOOK_URL,
-                    events=["invitee.created"], # You can add "invitee.canceled" if needed
-                    organization=organization_uri,
-                    scope="organization",
-                    signing_key=CALENDLY_WEBHOOK_SIGNING_KEY # This key is provided BY YOU to Calendly
-                )
-                logger.info("Calendly webhook created successfully.")
-            
-        except Exception as e:
-            logger.error(f"Failed to create or verify Calendly webhook: {e}")
-
 
     def process_message(self, sender_id: str, message_data: Dict[Any, Any]) -> str:
         """Process incoming messages and route to appropriate handler"""
@@ -438,7 +389,7 @@ class ApplicationBot:
             self._update_application_step(
                 application["id"],
                 STEPS["commitment_check"],
-                {"commitment_step": True, "commitment_period_months": gemini_response.get("period_in_months")}
+                {"commitment_step": True}
             )
             return f"Thank you! Your commitment period works for us. The next step is to upload your resume or CV. You can send it as a document (PDF, DOC, DOCX) or paste its content as text."
         else:
@@ -567,31 +518,37 @@ class ApplicationBot:
              # Refresh application data to reflect these changes for the current function scope
              application.update(update_data)
 
-
         # Check if we NOW have both name and NRIC (either from this message or previous ones)
         # This requires fetching the latest application record or ensuring 'application' dict is up-to-date
         current_name = application.get("name", "")
         current_nric = application.get("nric", "")
         
-        # A more robust check by re-fetching or ensuring application dict is the single source of truth
-        # For simplicity, we assume 'application' dict is updated if Gemini extracted something.
-        # However, the initial message for this step won't have name/nric in 'message'.
-        # The Gemini prompt for request_interview_details is designed to extract from the user's message.
-
         if name_provided and nric_provided and extracted_name and extracted_nric:
             # Both provided in this specific message and extracted by Gemini
             self._update_application_step(
                 application["id"],
-                STEPS["request_interview_details"], # Moves to waiting_calendly_booking
+                STEPS["request_interview_details"], # Moves to waiting_interview_booking
                 {"pass_step": True} # Indicates NRIC/Name collected for pass
             )
-            return f"Thank you, {extracted_name}! We have your details for the visitor pass.\n\nPlease book your interview slot using this link: {CALENDLY_LINK}\n\n{OFFICE_DIRECTIONS}\n\nOnce booked, our system will automatically confirm."
+
+            # change status to 'selecting_interview_slot'
+            self._update_application_step(
+                application["id"],
+                STEPS["selecting_interview_slot"],
+                {"pass_step": True}
+            )
+
+            # Generate unique interview link with application ID
+            interview_link = f"{INTERVIEW_LINK_BASE}/{application['id']}"
+            
+            return (f"Thank you, {extracted_name}! We have your details for the visitor pass.\n\n"
+                    f"Please book your interview slot using this link: {interview_link}\n\n"
+                    f"{OFFICE_DIRECTIONS}\n\n"
+                    "Our interviews are group sessions held daily at 3:00 PM SGT. "
+                    "Once you've booked your slot, we'll send you a confirmation message with your booking code.")
         else:
             # If Gemini couldn't extract both, or if it's the first time in this step (message might be from bot)
             # Rely on Gemini's response to ask for missing info.
-            # If the message is from the bot (e.g. the initial message to enter this step), Gemini might not find name/nric.
-            # The initial message to enter this step is sent by the `handle_webhook` (external_review)
-            # or if the user just says "hi" in this step.
             response_from_gemini = gemini_response.get("response")
             if response_from_gemini:
                 return response_from_gemini
@@ -602,18 +559,20 @@ class ApplicationBot:
                 return f"We still need your { ' and '.join(missing_parts) } to proceed with interview scheduling and your visitor pass."
 
 
-    def _handle_waiting_calendly_booking(self, application: Dict, message: str,
+    def _handle_waiting_interview_booking(self, application: Dict, message: str,
                                  message_type: str, message_data: Dict) -> str:
-        """User messages while bot is waiting for Calendly webhook."""
-        # User might say "I booked it" or ask for status.
-        # The actual confirmation comes from the webhook.
-        return "Thanks for letting me know. Please ensure you have booked your slot via the Calendly link we provided. Our system will send you a confirmation message automatically once the booking is detected. If you've already booked, please wait for that system confirmation."
+        """User messages while bot is waiting for interview booking webhook."""
+        interview_link = f"{INTERVIEW_LINK_BASE}/{application['id']}"
+        return (f"Thanks for letting me know. Please ensure you have booked your interview slot via the link we provided: "
+                f"{interview_link}\n\n"
+                f"Our system will send you a confirmation message automatically once your booking is complete. "
+                f"All interviews are group sessions held at 3:00 PM SGT.")
 
     def _handle_confirmation(self, application: Dict, message: str,
                            message_type: str, message_data: Dict) -> str:
-        """Final confirmation step after Calendly booking is confirmed by webhook."""
-        # This step is reached after the Calendly webhook has processed and updated the status.
-        # The primary confirmation message is sent by the Calendly webhook handler.
+        """Final confirmation step after interview booking is confirmed by webhook."""
+        # This step is reached after the interview booking webhook has processed and updated the status.
+        # The primary confirmation message is sent by the interview booking webhook handler.
         # This handler is for any follow-up messages from the user.
         self._update_application_step(
             application["id"],
@@ -683,126 +642,62 @@ class ApplicationBot:
                     messenger.send_message(message, phone_number)
                     self._record_message(application_id, "bot", message, "text")
 
-        except Exception as e:
-            logger.error(f"Error processing external review webhook: {e}", exc_info=True)
-
-    def handle_calendly_webhook(self, webhook_payload: Dict) -> None:
-        """Handles invitee.created event from Calendly."""
-        try:
-            event_type = webhook_payload.get("event")
-            payload_data = webhook_payload.get("payload")
-
-            if not payload_data or event_type != "invitee.created":
-                logger.info(f"Ignoring Calendly event: {event_type}")
-                return
-
-            invitee_uri = payload_data.get("uri")
-            # Fetch invitee details to get questions and answers (for phone number)
-            # invitee_details = self.calendly.get_invitee(uuid=invitee_uri.split('/')[-1]) # If you need more details
-            
-            # Extract phone number from questions_and_answers
-            # This assumes you have a question in your Calendly event type that asks for "Phone Number"
-            # And the user's WhatsApp number is E.164 format.
-            phone_number_from_calendly = None
-            for qa in payload_data.get("questions_and_answers", []):
-                if "phone" in qa.get("question", "").lower() or "number" in qa.get("question", "").lower() : # Adjust to match your question
-                    phone_number_from_calendly = qa.get("answer", "").replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
-                    if not phone_number_from_calendly.startswith("+"):
-                        # Attempt to normalize if it's a local number; this is highly country-dependent
-                        # For simplicity, assume it might be missing the '+' for an international number
-                        # Or you might need more sophisticated normalization based on your user base
-                        pass # Add normalization if needed, e.g., add default country code if missing
-                    break
-            
-            if not phone_number_from_calendly:
-                logger.error(f"Could not extract phone number from Calendly webhook: {payload_data.get('questions_and_answers')}")
-                return
-
-            # Find application by phone number (normalize if necessary)
-            # Supabase stores phone_number as 'from' which includes country code but no '+'
-            # Calendly might provide it with '+'. Adjust for matching.
-            normalized_phone_for_db = phone_number_from_calendly.lstrip('+')
-
-            app_result = self.db.table("applications").select("*").eq("phone_number", normalized_phone_for_db).order("created_at", desc=True).limit(1).execute()
-
-            if not app_result.data:
-                logger.error(f"No application found for phone number {normalized_phone_for_db} from Calendly webhook.")
-                return
-
-            application = app_result.data[0]
-            application_id = application["id"]
-            applicant_name = application.get("name", "Applicant")
-
-            # Record this webhook event
-            self.db.table("webhook_events").insert({
-                "application_id": str(application_id),
-                "event_type": "calendly_invitee_created",
-                "event_data": webhook_payload, # Store the raw payload
-                "processed": True
-            }).execute()
-
-            interview_start_time_str = payload_data.get("event", {}).get("start_time") # This path might be incorrect, check Calendly payload
-            # Correct path for start_time from typical Calendly invitee.created payload:
-            scheduled_event_details = payload_data.get("scheduled_event", {})
-            interview_start_time_str = scheduled_event_details.get("start_time")
-            
-            interview_datetime = None
-            if interview_start_time_str:
+            elif event_type == "interview_booked":
+                # Handle interview booking confirmation
+                interview_date = webhook_data.get("interview_date")
+                booking_code = webhook_data.get("booking_code")
+                
+                app_result = self.db.table("applications").select("id, phone_number, name").eq("id", application_id).execute()
+                
+                if not app_result.data:
+                    logger.error(f"Application not found for ID: {application_id} in interview booking webhook.")
+                    return
+                
+                application_details = app_result.data[0]
+                phone_number = application_details["phone_number"]
+                applicant_name = application_details.get("name", "Applicant")
+                
+                # Parse interview datetime for formatting
                 try:
-                    interview_datetime = datetime.datetime.fromisoformat(interview_start_time_str.replace("Z", "+00:00"))
-                except ValueError:
-                    logger.error(f"Could not parse interview start time: {interview_start_time_str}")
-
-
-            # Update application: interview details, status, and step
-            update_payload = {
-                "interview_date": interview_datetime.isoformat() if interview_datetime else None,
-                "interview_confirmation": True,
-                "calendly_event_uuid": payload_data.get("uri", "").split('/')[-1], # Store Calendly invitee UUID
-                "status": "interview_scheduled",
-                "current_step": STEPS["waiting_calendly_booking"], # Move to 'confirmation' step
-                "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
-            }
-            self.db.table("applications").update(update_payload).eq("id", application_id).execute()
-
-            # Send confirmation message to user
-            confirmation_message = (
-                f"Hi {applicant_name},\n\n"
-                f"Your interview has been successfully scheduled! "
-            )
-            if interview_datetime:
-                # Format datetime object to a user-friendly string, e.g., "Monday, May 27, 2024 at 2:00 PM"
-                # Consider user's timezone if possible, or state timezone explicitly (e.g., UTC)
-                user_friendly_time = interview_datetime.strftime("%A, %B %d, %Y at %I:%M %p %Z")
-                confirmation_message += f"It is set for {user_friendly_time}.\n\n"
-            else:
-                confirmation_message += "Please check your email for the exact time and details.\n\n"
-
-            confirmation_message += (
-                f"Office Location & Directions:\n{OFFICE_DIRECTIONS}\n\n"
-                "Your visitor pass will be prepared based on the details you provided. "
-                "We look forward to meeting you!"
-            )
-
-            messenger.send_message(confirmation_message, application["phone_number"])
-            self._record_message(application_id, "bot", confirmation_message, "text")
-            logger.info(f"Calendly booking confirmed for application {application_id}. User notified.")
+                    interview_datetime = datetime.datetime.fromisoformat(interview_date.replace("Z", "+00:00"))
+                    interview_date_formatted = interview_datetime.strftime("%A, %B %d, %Y")
+                    interview_time_formatted = interview_datetime.strftime("%I:%M %p %Z")
+                except Exception as e:
+                    logger.error(f"Error parsing interview date {interview_date}: {e}")
+                    interview_date_formatted = "the scheduled date"
+                    interview_time_formatted = "3:00 PM SGT"
+                
+                # Update application status
+                self._update_application_step(
+                    application_id,
+                    "confirmation",  # Move to confirmation step
+                    {
+                        "status": "interview_scheduled",
+                        "interview_date": interview_date,
+                        "interview_confirmation": True
+                    }
+                )
+                
+                # Send confirmation message
+                confirmation_message = (
+                    f"Hi {applicant_name},\n\n"
+                    f"Your interview has been successfully scheduled for {interview_date_formatted} at {interview_time_formatted}.\n\n"
+                    f"Booking Code: {booking_code}\n\n"
+                    f"Office Location & Directions:\n{OFFICE_DIRECTIONS}\n\n"
+                    "Your visitor pass will be prepared based on the details you provided. "
+                    "We look forward to meeting you!"
+                )
+                
+                messenger.send_message(confirmation_message, phone_number)
+                self._record_message(application_id, "bot", confirmation_message, "text")
+                logger.info(f"Interview booking confirmed for application {application_id}. User notified.")
 
         except Exception as e:
-            logger.error(f"Error processing Calendly webhook: {e}", exc_info=True)
+            logger.error(f"Error processing webhook: {e}", exc_info=True)
 
 
 # Initialize the bot
-application_bot = ApplicationBot(supabase_client, calendly_client)
-
-@app.before_first_request
-def initialize_calendly_webhook():
-    if CALENDLY_PERSONAL_ACCESS_TOKEN and CALENDLY_WEBHOOK_URL and CALENDLY_WEBHOOK_SIGNING_KEY:
-        logger.info("Attempting to create/verify Calendly webhook on startup...")
-        application_bot._create_calendly_webhook()
-    else:
-        logger.warning("Calendly PAT, Webhook URL, or Signing Key not set. Skipping Calendly webhook creation.")
-
+application_bot = ApplicationBot(supabase_client)
 
 @app.route('/webhook', methods=['GET'])
 def verify_whatsapp_webhook():
@@ -870,7 +765,7 @@ def whatsapp_webhook():
         return Response(status=500)
 
 
-@app.route('/external-review-webhook', methods=['POST']) # Renamed for clarity
+@app.route('/external-review-webhook', methods=['POST'])
 def external_review_webhook():
     data = request.get_json()
     if not data:
@@ -885,57 +780,13 @@ def external_review_webhook():
         logger.error(f"Error in external_review_webhook: {e}", exc_info=True)
         return Response(status=500)
 
-@app.route('/calendly-webhook', methods=['POST'])
-def calendly_webhook_receiver():
-    # Verify signature (important for security)
-    if CALENDLY_WEBHOOK_SIGNING_KEY:
-        signature_header = request.headers.get('Calendly-Webhook-Signature')
-        if not signature_header:
-            logger.warning("Calendly webhook: Missing signature header.")
-            return Response("Signature missing", status=401)
-
-        try:
-            t_value, sig_value = signature_header.split(',')
-            t = t_value.split('=')[1]
-            signature = sig_value.split('=')[1]
-            
-            signed_payload = t + "." + request.get_data(as_text=True)
-            expected_signature = hmac.new(
-                CALENDLY_WEBHOOK_SIGNING_KEY.encode(),
-                msg=signed_payload.encode(),
-                digestmod=hashlib.sha256
-            ).hexdigest()
-
-            if not hmac.compare_digest(expected_signature, signature):
-                logger.warning("Calendly webhook: Invalid signature.")
-                return Response("Invalid signature", status=401)
-        except Exception as e:
-            logger.error(f"Calendly webhook: Signature verification error: {e}")
-            return Response("Signature verification failed", status=401)
-    else:
-        logger.warning("CALENDLY_WEBHOOK_SIGNING_KEY not set. Skipping signature verification. THIS IS INSECURE.")
-
-
-    data = request.get_json()
-    if not data:
-        logger.error("Received empty JSON payload for Calendly webhook")
-        return Response(status=400)
-
-    # logger.info(f"Calendly webhook received: {json.dumps(data, indent=2)}")
-    try:
-        application_bot.handle_calendly_webhook(data)
-        return Response(status=200)
-    except Exception as e:
-        logger.error(f"Error in calendly_webhook_receiver: {e}", exc_info=True)
-        return Response(status=500)
-
 
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({
         "status": "ok",
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "version": "1.1.0" # Incremented version
+        "version": "1.2.0" # Incremented version
     })
 
 if __name__ == '__main__':
@@ -944,8 +795,7 @@ if __name__ == '__main__':
     print("  - /                       : Root endpoint (returns status message)")
     print("  - /health                 : Health check endpoint")
     print("  - /webhook                : WhatsApp webhook endpoint")
-    print("  - /external-review-webhook: External review system webhook endpoint")
-    print("  - /calendly-webhook       : Calendly webhook endpoint")
+    print("  - /external-review-webhook: External review/booking webhook endpoint")
     
     # For development, Flask's built-in server is fine.
     # For production on Windows, Waitress is a good choice.
