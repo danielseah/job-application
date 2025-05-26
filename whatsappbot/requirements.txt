@@ -1,0 +1,9 @@
+## Requirements File
+
+flask
+heyoo
+supabase
+google-generativeai
+python-dotenv
+gunicorn
+waitress

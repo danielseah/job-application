@@ -1,3 +1,4 @@
+// admin-application/components/applications-table.tsx
 "use client"
 
 import { useState } from "react"
@@ -59,6 +60,7 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
   const [selectedApplication, setSelectedApplication] = useState<Application | null>(null)
   const [formData, setFormData] = useState<any>(null)
   const [isCheckingRedFlags, setIsCheckingRedFlags] = useState(false)
+  const [isProcessingAction, setIsProcessingAction] = useState(false)
 
   const supabase = createClient()
   const { toast } = useToast()
@@ -80,32 +82,74 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
     return data.form_data
   }
 
-  // Update application status
-  const updateApplicationStatus = async (id: string, status: string) => {
-    const { error } = await supabase.from("applications").update({ status }).eq("id", id)
-
-    if (error) {
-      console.error("Error updating application status:", error)
-      return
-    }
-
-    // Update local state
-    setApplications(applications.map((app) => (app.id === id ? { ...app, status } : app)))
-
-    // TODO: Send webhook to chatbot to notify of status change
+  // Update application status and notify chatbot
+  const updateApplicationStatus = async (id: string, decision: "approved" | "rejected") => {
+    setIsProcessingAction(true)
     try {
-      await fetch("/api/notify-chatbot", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          applicationId: id,
-          status,
-        }),
+      // Map decision to appropriate status for database
+      const newStatus = decision === "approved" ? "interview_pending" : "rejected"
+      
+      // Update status in Supabase
+      const { error } = await supabase.from("applications").update({ status: newStatus }).eq("id", id)
+
+      if (error) {
+        console.error("Error updating application status:", error)
+        toast({
+          title: "Error",
+          description: `Failed to update application status: ${error.message}`,
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Update local state
+      setApplications(applications.map((app) => (app.id === id ? { ...app, status: newStatus } : app)))
+      
+      if (selectedApplication && selectedApplication.id === id) {
+        setSelectedApplication({...selectedApplication, status: newStatus})
+      }
+
+      // Send webhook to chatbot to notify of status change
+      try {
+        const response = await fetch("/api/notify-chatbot", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            application_id: id,
+            event_type: "application_review",
+            decision,
+            timestamp: new Date().toISOString()
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error(`Server responded with status: ${response.status}`)
+        }
+
+        toast({
+          title: "Success",
+          description: `Application ${decision === "approved" ? "approved" : "rejected"} successfully.`,
+          variant: "default",
+        })
+      } catch (error) {
+        console.error("Error notifying chatbot:", error)
+        toast({
+          title: "Warning",
+          description: "Application status updated but failed to notify messaging system.",
+          variant: "warning",
+        })
+      }
+    } catch (err) {
+      console.error("Error in updateApplicationStatus:", err)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred.",
+        variant: "destructive",
       })
-    } catch (error) {
-      console.error("Error notifying chatbot:", error)
+    } finally {
+      setIsProcessingAction(false)
     }
   }
 
@@ -293,6 +337,8 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
         return <Badge className="bg-blue-500 text-white">Form Submitted</Badge>
       case "accepted":
         return <Badge className="bg-green-500 text-white">Accepted</Badge>
+      case "interview_pending":
+        return <Badge className="bg-yellow-500 text-white">Interview Pending</Badge>
       case "rejected":
         return <Badge className="bg-red-500 text-white">Rejected</Badge>
       case "interview_scheduled":
@@ -328,7 +374,7 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
             <DropdownMenuItem onClick={() => setStatusFilter(null)}>All Statuses</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setStatusFilter("pending")}>Pending</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setStatusFilter("form_submitted")}>Form Submitted</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setStatusFilter("accepted")}>Accepted</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStatusFilter("interview_pending")}>Interview Pending</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setStatusFilter("rejected")}>Rejected</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setStatusFilter("interview_scheduled")}>
               Interview Scheduled
@@ -483,14 +529,16 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
                           Check for Red Flags
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                          onClick={() => updateApplicationStatus(application.id, "accepted")}
+                          onClick={() => updateApplicationStatus(application.id, "approved")}
                           className="text-green-600"
+                          disabled={isProcessingAction}
                         >
                           Accept Application
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => updateApplicationStatus(application.id, "rejected")}
                           className="text-red-600"
+                          disabled={isProcessingAction}
                         >
                           Reject Application
                         </DropdownMenuItem>
@@ -558,6 +606,10 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
                       <span>{selectedApplication.resume_step ? "Yes" : "No"}</span>
                     </div>
                     <div className="flex justify-between">
+                      <span>Commitment Confirmed:</span>
+                      <span>{selectedApplication.commitment_step ? "Yes" : "No"}</span>
+                    </div>
+                    <div className="flex justify-between">
                       <span>Form Completed:</span>
                       <span>{selectedApplication.form_step ? "Yes" : "No"}</span>
                     </div>
@@ -587,8 +639,9 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
                     Check for Red Flags
                   </Button>
                   <Button
-                    onClick={() => updateApplicationStatus(selectedApplication.id, "accepted")}
+                    onClick={() => updateApplicationStatus(selectedApplication.id, "approved")}
                     className="bg-green-600 hover:bg-green-700"
+                    disabled={isProcessingAction}
                   >
                     <Check className="mr-2 h-4 w-4" />
                     Accept Application
@@ -596,6 +649,7 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
                   <Button
                     onClick={() => updateApplicationStatus(selectedApplication.id, "rejected")}
                     variant="destructive"
+                    disabled={isProcessingAction}
                   >
                     <X className="mr-2 h-4 w-4" />
                     Reject Application

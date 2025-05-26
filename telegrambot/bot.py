@@ -690,7 +690,11 @@ async def handle_review_webhook(request: Request):
     except Exception as e:
         logger.error(f"Webhook error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
-        
+
+@app.get("/")
+async def root():
+    """Root endpoint to check if the server is running"""
+    return {"message": "Job Application Bot is running!"}
 
 # Main execution
 if __name__ == "__main__":
