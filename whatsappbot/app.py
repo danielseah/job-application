@@ -64,16 +64,22 @@ def root():
 # Interview scheduling and office information
 INTERVIEW_LINK_BASE = os.environ.get("INTERVIEW_LINK_BASE", "https://your-company.com/interview")
 OFFICE_DIRECTIONS = """
-Our office is located at:
-123 Business Street
-Suite 456
-Business City, BC 12345
+As our facility is located in a heavily guarded area within Singapore, kindly provide us your *full name as per NRIC and NRIC number* in advance to facilitate the clearance with the Airport Police.
 
-Nearest transit:
-- Bus: Routes 10, 15 (stop at Business Square)
-- Train: Central Station (5-minute walk)
+Our full address is 115 Airport Cargo Road, Changi Airport Cargo Building C, Level 7 Unit 18.
 
-Please arrive 15 minutes before your scheduled time.
+Please alight at the Police Pass Office Bus Stop (95131) first to exchange for the visitor pass. 
+Do bring a pen as there will be a small slip of paper you need to fill in as well located on the side shelves.
+
+When you are at the Airport Police Pass Office, please proceed to counter 1, 2, 3 and 4 in order to exchange passes. Please inform them that you are attending an interview. Please also inform them that the authorisation has been given by an agent company called Mirae. (Note: do not go to the SIA counter to exchange your pass.)
+
+After receiving the visitor pass, you may then take any bus such as 9, 19, 89 or even the express bus 89e from the bus stop where you’ve alighted earlier to enter the protected area.  Additionally, you can enter by your personal vehicle after clearing the pass office.
+
+Once you’ve cleared the protected area checkpoint, please alight at 3rd Cargo Agents Building (95051) which is three 3 bus stops after to access the area. Please note that the bus might skip certain stops when there is no one. So please do not count the number of times the bus stopped. 
+
+Finally, head over to the office lobby where there would be 3 elevators. Once you've arrived, kindly report to #07-18
+
+Thank you ☺ (Kindly wait for confirmation of your entry number before we can confirm your interview date and time slot for the next steps. This message is not a confirmation of the interview date)
 """
 
 # Google Form link
@@ -493,45 +499,50 @@ class ApplicationBot:
         return "Your application is currently under review. We'll notify you as soon as a decision is made. Thank you for your patience!"
 
     def _handle_request_interview_details(self, application: Dict, message: str,
-                                 message_type: str, message_data: Dict) -> str:
-        """Handles collecting Full Name and NRIC for the interview pass."""
+                             message_type: str, message_data: Dict) -> str:
+        """Handles collecting Full Name and NRIC for the interview pass. Allows them to be sent in separate messages."""
         gemini_response = self._call_gemini("request_interview_details", message)
 
         if "error" in gemini_response:
             return gemini_response.get("response", "I'm having trouble processing your information. Could you please provide your full name and NRIC number clearly? This is required for office access.")
 
+        # Get current stored values
+        current_name = application.get("name", "")
+        current_nric = application.get("nric", "")
+        
+        # Get what Gemini extracted from this message
         name_provided = gemini_response.get("name_provided", False)
         nric_provided = gemini_response.get("nric_provided", False)
         extracted_name = gemini_response.get("name", "").strip()
         extracted_nric = gemini_response.get("nric", "").strip().upper()
 
+        # Update data with any new information from this message
         update_data = {}
         if name_provided and extracted_name:
             update_data["name"] = extracted_name
+            current_name = extracted_name  # Update local variable too
         if nric_provided and extracted_nric:
-            # Basic NRIC validation (can be enhanced with regex from Gemini model if needed here too)
-            # For now, rely on Gemini's extraction.
-            update_data["nric"] = extracted_nric # Store the NRIC
+            update_data["nric"] = extracted_nric
+            current_nric = extracted_nric  # Update local variable too
 
-        if update_data: # If Gemini extracted anything, update the DB
-             self.db.table("applications").update(update_data).eq("id", application["id"]).execute()
-             # Refresh application data to reflect these changes for the current function scope
-             application.update(update_data)
+        if update_data:  # If Gemini extracted anything, update the DB
+            self.db.table("applications").update(update_data).eq("id", application["id"]).execute()
+            # Update the application dictionary with the new values
+            application.update(update_data)
 
-        # Check if we NOW have both name and NRIC (either from this message or previous ones)
-        # This requires fetching the latest application record or ensuring 'application' dict is up-to-date
-        current_name = application.get("name", "")
-        current_nric = application.get("nric", "")
+        # Check if we have both name and NRIC now (either from this message or previous ones)
+        have_name = bool(current_name) or name_provided
+        have_nric = bool(current_nric) or nric_provided
         
-        if name_provided and nric_provided and extracted_name and extracted_nric:
-            # Both provided in this specific message and extracted by Gemini
+        if have_name and have_nric:
+            # Both are available (either from current message or stored previously)
             self._update_application_step(
                 application["id"],
-                STEPS["request_interview_details"], # Moves to waiting_interview_booking
-                {"pass_step": True} # Indicates NRIC/Name collected for pass
+                STEPS["request_interview_details"],  # Moves to waiting_interview_booking
+                {"pass_step": True}  # Indicates NRIC/Name collected for pass
             )
 
-            # change status to 'selecting_interview_slot'
+            # Change status to 'selecting_interview_slot'
             self._update_application_step(
                 application["id"],
                 STEPS["selecting_interview_slot"],
@@ -541,22 +552,26 @@ class ApplicationBot:
             # Generate unique interview link with application ID
             interview_link = f"{INTERVIEW_LINK_BASE}/{application['id']}"
             
-            return (f"Thank you, {extracted_name}! We have your details for the visitor pass.\n\n"
+            # Use the most up-to-date name we have
+            display_name = current_name if current_name else extracted_name
+            
+            return (f"Thank you, {display_name}! We have your details for the visitor pass.\n\n"
                     f"Please book your interview slot using this link: {interview_link}\n\n"
                     f"{OFFICE_DIRECTIONS}\n\n"
                     "Our interviews are group sessions held daily at 3:00 PM SGT. "
                     "Once you've booked your slot, we'll send you a confirmation message with your booking code.")
         else:
-            # If Gemini couldn't extract both, or if it's the first time in this step (message might be from bot)
-            # Rely on Gemini's response to ask for missing info.
+            # We're still missing information - let the user know what we need
+            missing_parts = []
+            if not have_name: missing_parts.append("full name")
+            if not have_nric: missing_parts.append("NRIC")
+            
+            # If Gemini provided a response, use that
             response_from_gemini = gemini_response.get("response")
             if response_from_gemini:
                 return response_from_gemini
-            else: # Fallback if Gemini provides no specific response
-                missing_parts = []
-                if not name_provided: missing_parts.append("full name")
-                if not nric_provided: missing_parts.append("NRIC")
-                return f"We still need your { ' and '.join(missing_parts) } to proceed with interview scheduling and your visitor pass."
+            else:  # Fallback if Gemini provides no specific response
+                return f"We still need your {' and '.join(missing_parts)} to proceed with interview scheduling and your visitor pass."
 
 
     def _handle_waiting_interview_booking(self, application: Dict, message: str,
