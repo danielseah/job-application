@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Get the WhatsApp bot webhook URL from environment variables
-    const chatbotWebhookUrl = process.env.CHATBOT_WEBHOOK_URL || "http://localhost:5000/external-webhook"
+    const chatbotWebhookUrl = process.env.CHATBOT_WEBHOOK_URL || "http://2ecc-151-192-105-138.ngrok-free.app/external-webhook"
     
     // Forward the notification to the WhatsApp bot
     const response = await fetch(chatbotWebhookUrl, {
