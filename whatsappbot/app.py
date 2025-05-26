@@ -114,7 +114,7 @@ GEMINI_MODELS = {
         """
     },
     "commitment_check": {
-        "model_name": "gemini-pro",
+        "model_name": "gemini-2.5-flash-preview-05-20",
         "temperature": 0.1,
         "instructions": """
         You are an HR assistant checking a job applicant's commitment period. Your role is to determine if the applicant can commit to at least 1 month.
