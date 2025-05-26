@@ -1,4 +1,3 @@
-// admin-application/components/applications-table.tsx
 "use client"
 
 import { useState } from "react"
@@ -19,6 +18,8 @@ import {
   ChevronDown,
   Filter,
   RefreshCw,
+  ClipboardCheck,
+  UserCheck,
 } from "lucide-react"
 import {
   Dialog,
@@ -26,10 +27,16 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import { createClient } from "@/utils/supabase/client"
 import { useToast } from "@/hooks/use-toast"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { Progress } from "@/components/ui/progress"
 
 type Application = {
   id: string
@@ -43,7 +50,7 @@ type Application = {
   calendar_step: boolean
   pass_step: boolean
   interview_step: boolean
-  status: string
+  current_step: string
   created_at: string
 }
 
@@ -83,7 +90,7 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
   const [applications, setApplications] = useState<Application[]>(normalizedApplications)
   const [searchTerm, setSearchTerm] = useState("")
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: "created_at", direction: "desc" })
-  const [statusFilter, setStatusFilter] = useState<string | null>(null)
+  const [stepFilter, setStepFilter] = useState<string | null>(null)
   const [selectedApplication, setSelectedApplication] = useState<Application | null>(null)
   const [formData, setFormData] = useState<any>(null)
   const [isCheckingRedFlags, setIsCheckingRedFlags] = useState(false)
@@ -113,27 +120,35 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
   const updateApplicationStatus = async (id: string, decision: "approved" | "rejected") => {
     setIsProcessingAction(true)
     try {
-      // Map decision to appropriate status for database
-      const newStatus = decision === "approved" ? "interview_pending" : "rejected"
+      // Map decision to appropriate current_step and status for database
+      const updateData = decision === "approved" 
+        ? { 
+            current_step: "request_interview_details",
+            status: "interview_pending" 
+        } 
+        : {
+            current_step: "rejected",
+            status: "rejected"
+        }
       
-      // Update status in Supabase
-      const { error } = await supabase.from("applications").update({ status: newStatus }).eq("id", id)
+      // Update both current_step and status in Supabase
+      const { error } = await supabase.from("applications").update(updateData).eq("id", id)
 
       if (error) {
-        console.error("Error updating application status:", error)
+        console.error("Error updating application:", error)
         toast({
           title: "Error",
-          description: `Failed to update application status: ${error.message}`,
+          description: `Failed to update application: ${error.message}`,
           variant: "destructive",
         })
         return
       }
 
       // Update local state
-      setApplications(applications.map((app) => (app.id === id ? { ...app, status: newStatus } : app)))
+      setApplications(applications.map((app) => (app.id === id ? { ...app, ...updateData } : app)))
       
       if (selectedApplication && selectedApplication.id === id) {
-        setSelectedApplication({...selectedApplication, status: newStatus})
+        setSelectedApplication({...selectedApplication, ...updateData})
       }
 
       // Send webhook to chatbot to notify of status change
@@ -164,7 +179,7 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
         console.error("Error notifying chatbot:", error)
         toast({
           title: "Warning",
-          description: "Application status updated but failed to notify messaging system.",
+          description: "Application updated but failed to notify messaging system.",
           variant: "warning",
         })
       }
@@ -330,6 +345,21 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
     setSortConfig({ key, direction })
   }
 
+  // Calculate progress percentage for progress bar
+  const calculateProgress = (application: Application) => {
+    const steps = [
+      application.commitment_step,
+      application.resume_step,
+      application.form_step, 
+      application.pass_step,
+      application.calendar_step,
+      application.interview_step
+    ];
+    
+    const completedSteps = steps.filter(Boolean).length;
+    return Math.round((completedSteps / steps.length) * 100);
+  }
+
   // Filter and sort applications
   const filteredAndSortedApplications = applications
     .filter((app) => {
@@ -340,9 +370,9 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
       return true
     })
     .filter((app) => {
-      // Apply status filter
-      if (statusFilter) {
-        return app.status === statusFilter
+      // Apply current_step filter
+      if (stepFilter) {
+        return app.current_step === stepFilter
       }
       return true
     })
@@ -359,25 +389,34 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
       return 0
     })
 
-  // Get status badge color
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "pending":
-        return <Badge variant="outline">Pending</Badge>
-      case "form_submitted":
-        return <Badge className="bg-blue-500 text-white">Form Submitted</Badge>
-      case "accepted":
-        return <Badge className="bg-green-500 text-white">Accepted</Badge>
-      case "interview_pending":
-        return <Badge className="bg-yellow-500 text-white">Interview Pending</Badge>
+  // Get step badge color and style
+  const getStepBadge = (step: string) => {
+    switch (step) {
+      case "initial_contact":
+        return <Badge variant="outline">Initial Contact</Badge>
+      case "confirm_intent":
+        return <Badge className="bg-blue-100 text-blue-700 border-blue-200">Confirming Intent</Badge>
+      case "commitment_check":
+        return <Badge className="bg-blue-200 text-blue-800 border-blue-300">Commitment Check</Badge>
+      case "request_resume":
+        return <Badge className="bg-indigo-100 text-indigo-700 border-indigo-200">Resume Requested</Badge>
+      case "request_form":
+        return <Badge className="bg-purple-100 text-purple-700 border-purple-200">Form Requested</Badge>
+      case "waiting_review":
+        return <Badge className="bg-orange-100 text-orange-700 border-orange-200">Under Review</Badge>
+      case "request_interview_details":
+        return <Badge className="bg-yellow-100 text-yellow-700 border-yellow-200">Interview Details</Badge>
+      case "waiting_interview_booking":
+      case "waiting_calendly_booking":  // Support older naming for compatibility
+        return <Badge className="bg-green-100 text-green-700 border-green-200">Booking Interview</Badge>
+      case "confirmation":
+        return <Badge className="bg-green-500 text-white">Interview Confirmed</Badge>
+      case "completed":
+        return <Badge className="bg-green-700 text-white">Completed</Badge>
       case "rejected":
         return <Badge className="bg-red-500 text-white">Rejected</Badge>
-      case "interview_scheduled":
-        return <Badge className="bg-purple-500 text-white">Interview Scheduled</Badge>
-      case "interview_completed":
-        return <Badge className="bg-indigo-500 text-white">Interview Completed</Badge>
       default:
-        return <Badge variant="outline">{status}</Badge>
+        return <Badge variant="outline">{step}</Badge>
     }
   }
 
@@ -398,21 +437,22 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="w-full sm:w-auto">
               <Filter className="mr-2 h-4 w-4" />
-              {statusFilter ? `Status: ${statusFilter}` : "Filter by Status"}
+              {stepFilter ? `Step: ${stepFilter}` : "Filter by Step"}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent>
-            <DropdownMenuItem onClick={() => setStatusFilter(null)}>All Statuses</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setStatusFilter("pending")}>Pending</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setStatusFilter("form_submitted")}>Form Submitted</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setStatusFilter("interview_pending")}>Interview Pending</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setStatusFilter("rejected")}>Rejected</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setStatusFilter("interview_scheduled")}>
-              Interview Scheduled
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setStatusFilter("interview_completed")}>
-              Interview Completed
-            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStepFilter(null)}>All Steps</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStepFilter("initial_contact")}>Initial Contact</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStepFilter("confirm_intent")}>Confirming Intent</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStepFilter("commitment_check")}>Commitment Check</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStepFilter("request_resume")}>Resume Requested</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStepFilter("request_form")}>Form Requested</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStepFilter("waiting_review")}>Under Review</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStepFilter("request_interview_details")}>Interview Details</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStepFilter("waiting_interview_booking")}>Booking Interview</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStepFilter("confirmation")}>Interview Confirmed</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStepFilter("completed")}>Completed</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStepFilter("rejected")}>Rejected</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -439,28 +479,19 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
                     <ChevronDown className="inline ml-1 h-4 w-4" />
                   ))}
               </TableHead>
-              <TableHead className="cursor-pointer" onClick={() => handleSort("status")}>
-                Status
-                {sortConfig.key === "status" &&
+              <TableHead className="cursor-pointer" onClick={() => handleSort("current_step")}>
+                Current Step
+                {sortConfig.key === "current_step" &&
                   (sortConfig.direction === "asc" ? (
                     <ChevronUp className="inline ml-1 h-4 w-4" />
                   ) : (
                     <ChevronDown className="inline ml-1 h-4 w-4" />
                   ))}
               </TableHead>
-              <TableHead>Progress</TableHead>
+              <TableHead className="w-[300px]">Progress</TableHead>
               <TableHead className="cursor-pointer" onClick={() => handleSort("red_flags")}>
                 Red Flags
                 {sortConfig.key === "red_flags" &&
-                  (sortConfig.direction === "asc" ? (
-                    <ChevronUp className="inline ml-1 h-4 w-4" />
-                  ) : (
-                    <ChevronDown className="inline ml-1 h-4 w-4" />
-                  ))}
-              </TableHead>
-              <TableHead className="cursor-pointer" onClick={() => handleSort("created_at")}>
-                Date
-                {sortConfig.key === "created_at" &&
                   (sortConfig.direction === "asc" ? (
                     <ChevronUp className="inline ml-1 h-4 w-4" />
                   ) : (
@@ -473,7 +504,7 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
           <TableBody>
             {filteredAndSortedApplications.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                   No applications found
                 </TableCell>
               </TableRow>
@@ -482,42 +513,140 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
                 <TableRow key={application.id}>
                   <TableCell className="font-medium">{application.name}</TableCell>
                   <TableCell>{application.phone_number}</TableCell>
-                  <TableCell>{getStatusBadge(application.status)}</TableCell>
+                  <TableCell>{getStepBadge(application.current_step)}</TableCell>
                   <TableCell>
-                    <div className="flex space-x-1">
-                      <Badge
-                        variant={application.resume_step ? "default" : "outline"}
-                        className="h-6 w-6 p-0 flex items-center justify-center"
-                      >
-                        <FileText className="h-3 w-3" />
-                      </Badge>
-                      <Badge
-                        variant={application.form_step ? "default" : "outline"}
-                        className="h-6 w-6 p-0 flex items-center justify-center"
-                      >
-                        <Check className="h-3 w-3" />
-                      </Badge>
-                      <Badge
-                        variant={application.calendar_step ? "default" : "outline"}
-                        className="h-6 w-6 p-0 flex items-center justify-center"
-                      >
-                        <Calendar className="h-3 w-3" />
-                      </Badge>
-                      <Badge
-                        variant={application.interview_step ? "default" : "outline"}
-                        className="h-6 w-6 p-0 flex items-center justify-center"
-                      >
-                        <Check className="h-3 w-3" />
-                      </Badge>
+                    <div className="space-y-2">
+                      <Progress value={calculateProgress(application)} className="h-2" />
+                      <div className="flex space-x-2">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className={`w-7 h-7 rounded-full flex items-center justify-center ${
+                                application.commitment_step 
+                                  ? 'bg-green-100 border-green-400 text-green-600' 
+                                  : 'bg-gray-100 border-gray-300 text-gray-400'
+                              } border`}>
+                                <UserCheck className="h-4 w-4" />
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Commitment Check</p>
+                              <p className="text-xs text-gray-500">
+                                {application.commitment_step ? "Completed" : "Pending"}
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className={`w-7 h-7 rounded-full flex items-center justify-center ${
+                                application.resume_step 
+                                  ? 'bg-green-100 border-green-400 text-green-600' 
+                                  : 'bg-gray-100 border-gray-300 text-gray-400'
+                              } border`}>
+                                <FileText className="h-4 w-4" />
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Resume Submission</p>
+                              <p className="text-xs text-gray-500">
+                                {application.resume_step ? "Uploaded" : "Not Submitted"}
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className={`w-7 h-7 rounded-full flex items-center justify-center ${
+                                application.form_step 
+                                  ? 'bg-green-100 border-green-400 text-green-600' 
+                                  : 'bg-gray-100 border-gray-300 text-gray-400'
+                              } border`}>
+                                <ClipboardCheck className="h-4 w-4" />
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Form Completion</p>
+                              <p className="text-xs text-gray-500">
+                                {application.form_step ? "Completed" : "Incomplete"}
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className={`w-7 h-7 rounded-full flex items-center justify-center ${
+                                application.pass_step 
+                                  ? 'bg-green-100 border-green-400 text-green-600' 
+                                  : 'bg-gray-100 border-gray-300 text-gray-400'
+                              } border`}>
+                                <UserCheck className="h-4 w-4" />
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Visitor Pass Details</p>
+                              <p className="text-xs text-gray-500">
+                                {application.pass_step ? "Provided" : "Not Provided"}
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className={`w-7 h-7 rounded-full flex items-center justify-center ${
+                                application.calendar_step 
+                                  ? 'bg-green-100 border-green-400 text-green-600' 
+                                  : 'bg-gray-100 border-gray-300 text-gray-400'
+                              } border`}>
+                                <Calendar className="h-4 w-4" />
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Interview Scheduled</p>
+                              <p className="text-xs text-gray-500">
+                                {application.calendar_step ? "Booked" : "Not Scheduled"}
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className={`w-7 h-7 rounded-full flex items-center justify-center ${
+                                application.interview_step 
+                                  ? 'bg-green-100 border-green-400 text-green-600' 
+                                  : 'bg-gray-100 border-gray-300 text-gray-400'
+                              } border`}>
+                                <Check className="h-4 w-4" />
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Interview Completed</p>
+                              <p className="text-xs text-gray-500">
+                                {application.interview_step ? "Completed" : "Not Completed"}
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell>
                     {application.red_flags > 0 ? (
                       <Dialog>
                         <DialogTrigger asChild>
-                          <Button variant="ghost" className="h-8 w-8 p-0 text-red-500">
+                          <Button variant="ghost" className="h-8 p-1 text-red-500 flex items-center gap-1">
                             <AlertTriangle className="h-4 w-4" />
-                            <span className="ml-1">{application.red_flags}</span>
+                            <span>{application.red_flags}</span>
                           </Button>
                         </DialogTrigger>
                         <DialogContent>
@@ -535,10 +664,11 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
                         </DialogContent>
                       </Dialog>
                     ) : (
-                      <span>None</span>
+                      <span className="text-green-600 flex items-center gap-1">
+                        <Check className="h-4 w-4" /> None
+                      </span>
                     )}
                   </TableCell>
-                  <TableCell>{new Date(application.created_at).toLocaleDateString()}</TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -607,8 +737,8 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
                     <span>{selectedApplication.phone_number}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="font-medium">Status:</span>
-                    <span>{getStatusBadge(selectedApplication.status)}</span>
+                    <span className="font-medium">Current Step:</span>
+                    <span>{getStepBadge(selectedApplication.current_step)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium">Red Flags:</span>
@@ -629,32 +759,97 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
                   </div>
                 )}
 
-                <div className="mt-4">
-                  <h4 className="font-medium mb-1">Application Progress:</h4>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span>Resume Submitted:</span>
-                      <span>{selectedApplication.resume_step ? "Yes" : "No"}</span>
+                <div className="mt-6">
+                  <h4 className="font-medium mb-3">Application Progress:</h4>
+                  <div className="bg-gray-50 p-4 rounded-md border">
+                    <div className="mb-3">
+                      <Progress 
+                        value={calculateProgress(selectedApplication)} 
+                        className="h-2 mb-2"
+                      />
+                      <div className="text-sm text-center text-gray-500">
+                        {calculateProgress(selectedApplication)}% Complete
+                      </div>
                     </div>
-                    <div className="flex justify-between">
-                      <span>Commitment Confirmed:</span>
-                      <span>{selectedApplication.commitment_step ? "Yes" : "No"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Form Completed:</span>
-                      <span>{selectedApplication.form_step ? "Yes" : "No"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Calendar Scheduled:</span>
-                      <span>{selectedApplication.calendar_step ? "Yes" : "No"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Pass Created:</span>
-                      <span>{selectedApplication.pass_step ? "Yes" : "No"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Interview Completed:</span>
-                      <span>{selectedApplication.interview_step ? "Yes" : "No"}</span>
+                    
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                          selectedApplication.commitment_step 
+                            ? 'bg-green-100 text-green-600' 
+                            : 'bg-gray-100 text-gray-400'
+                        }`}>
+                          <UserCheck className="h-3 w-3" />
+                        </div>
+                        <span className={`text-sm ${selectedApplication.commitment_step ? 'text-green-600' : 'text-gray-600'}`}>
+                          Commitment Check
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                          selectedApplication.resume_step 
+                            ? 'bg-green-100 text-green-600' 
+                            : 'bg-gray-100 text-gray-400'
+                        }`}>
+                          <FileText className="h-3 w-3" />
+                        </div>
+                        <span className={`text-sm ${selectedApplication.resume_step ? 'text-green-600' : 'text-gray-600'}`}>
+                          Resume Submitted
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                          selectedApplication.form_step 
+                            ? 'bg-green-100 text-green-600' 
+                            : 'bg-gray-100 text-gray-400'
+                        }`}>
+                          <ClipboardCheck className="h-3 w-3" />
+                        </div>
+                        <span className={`text-sm ${selectedApplication.form_step ? 'text-green-600' : 'text-gray-600'}`}>
+                          Form Completed
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                          selectedApplication.pass_step 
+                            ? 'bg-green-100 text-green-600' 
+                            : 'bg-gray-100 text-gray-400'
+                        }`}>
+                          <UserCheck className="h-3 w-3" />
+                        </div>
+                        <span className={`text-sm ${selectedApplication.pass_step ? 'text-green-600' : 'text-gray-600'}`}>
+                          Pass Details
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                          selectedApplication.calendar_step 
+                            ? 'bg-green-100 text-green-600' 
+                            : 'bg-gray-100 text-gray-400'
+                        }`}>
+                          <Calendar className="h-3 w-3" />
+                        </div>
+                        <span className={`text-sm ${selectedApplication.calendar_step ? 'text-green-600' : 'text-gray-600'}`}>
+                          Interview Scheduled
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                          selectedApplication.interview_step 
+                            ? 'bg-green-100 text-green-600' 
+                            : 'bg-gray-100 text-gray-400'
+                        }`}>
+                          <Check className="h-3 w-3" />
+                        </div>
+                        <span className={`text-sm ${selectedApplication.interview_step ? 'text-green-600' : 'text-gray-600'}`}>
+                          Interview Completed
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
