@@ -39,7 +39,7 @@ type Application = {
   commitment_step: boolean
   form_step: boolean
   red_flags: number
-  red_flag_reasons: string[]
+  red_flag_reasons: string[] | string | null
   calendar_step: boolean
   pass_step: boolean
   interview_step: boolean
@@ -52,8 +52,35 @@ type SortConfig = {
   direction: "asc" | "desc"
 }
 
+// Helper function to ensure red_flag_reasons is always an array
+const ensureArray = (value: string[] | string | null | undefined): string[] => {
+  if (Array.isArray(value)) {
+    return value
+  }
+  
+  if (typeof value === 'string') {
+    try {
+      // Try to parse it as JSON
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : [value]
+    } catch {
+      // If parsing fails, treat it as a single string item
+      return [value]
+    }
+  }
+  
+  // Default to empty array for null/undefined
+  return []
+}
+
 export function ApplicationsTable({ applications: initialApplications }: { applications: Application[] }) {
-  const [applications, setApplications] = useState<Application[]>(initialApplications)
+  // Normalize all applications to ensure red_flag_reasons is an array
+  const normalizedApplications = initialApplications.map(app => ({
+    ...app,
+    red_flag_reasons: ensureArray(app.red_flag_reasons)
+  }))
+  
+  const [applications, setApplications] = useState<Application[]>(normalizedApplications)
   const [searchTerm, setSearchTerm] = useState("")
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: "created_at", direction: "desc" })
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
@@ -252,9 +279,13 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
         return
       }
 
-      // Update local state
+      // Update local state with properly structured red_flag_reasons
       const updatedApplications = applications.map((app) =>
-        app.id === application.id ? { ...app, red_flags: redFlags.length, red_flag_reasons: redFlags } : app,
+        app.id === application.id ? { 
+          ...app, 
+          red_flags: redFlags.length, 
+          red_flag_reasons: redFlags  // This is now a proper array
+        } : app
       )
 
       setApplications(updatedApplications)
@@ -264,7 +295,7 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
         setSelectedApplication({
           ...selectedApplication,
           red_flags: redFlags.length,
-          red_flag_reasons: redFlags,
+          red_flag_reasons: redFlags,  // This is now a proper array
         })
       }
 
@@ -495,7 +526,7 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
                             <DialogDescription>The following issues were detected:</DialogDescription>
                           </DialogHeader>
                           <ul className="list-disc pl-5 mt-2">
-                            {application.red_flag_reasons.map((reason, index) => (
+                            {ensureArray(application.red_flag_reasons).map((reason, index) => (
                               <li key={index} className="text-red-500">
                                 {reason}
                               </li>
@@ -589,7 +620,7 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
                   <div className="mt-4">
                     <h4 className="font-medium mb-1">Red Flag Reasons:</h4>
                     <ul className="list-disc pl-5">
-                      {selectedApplication.red_flag_reasons.map((reason, index) => (
+                      {ensureArray(selectedApplication.red_flag_reasons).map((reason, index) => (
                         <li key={index} className="text-red-500">
                           {reason}
                         </li>
