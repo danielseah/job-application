@@ -4,7 +4,15 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Card, CardContent } from "@/components/ui/card"
-import { format, addDays, isBefore, startOfDay, addMonths } from "date-fns"
+import { 
+  format, 
+  addDays, 
+  isBefore, 
+  startOfDay, 
+  isWeekend,
+  isAfter,
+  nextMonday 
+} from "date-fns"
 import { createClient } from "@/utils/supabase/client"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
@@ -145,10 +153,34 @@ export default function InterviewScheduler({
     }
   }
 
-  // Define date range: from tomorrow to 1 month from now
+  // Get today's date
   const today = startOfDay(new Date())
-  const tomorrow = addDays(today, 1)
-  const oneMonthLater = addMonths(today, 1)
+  
+  // Calculate tomorrow's date
+  let tomorrow = addDays(today, 1)
+  // If tomorrow is weekend, move to next Monday
+  if (isWeekend(tomorrow)) {
+    tomorrow = nextMonday(today)
+  }
+  
+  // Calculate the end date (5 working days from tomorrow)
+  const getNext5WorkingDays = (startDate: Date): Date => {
+    let workingDaysCount = 0
+    let currentDay = startDate
+    let endDate = startDate
+    
+    while (workingDaysCount < 5) {
+      currentDay = addDays(currentDay, 1)
+      if (!isWeekend(currentDay)) {
+        workingDaysCount++
+        endDate = currentDay
+      }
+    }
+    
+    return endDate
+  }
+  
+  const lastAvailableDay = getNext5WorkingDays(tomorrow)
   
   return (
     <div className="space-y-6">
@@ -159,6 +191,7 @@ export default function InterviewScheduler({
             <p className="text-sm text-gray-500">
               Please select an available date for your interview.
               All interviews take place at 3:00 PM (Singapore Time).
+              Only the next 5 working days (Monday-Friday) are available for scheduling.
             </p>
           </div>
           
@@ -167,10 +200,12 @@ export default function InterviewScheduler({
             selected={selectedDate}
             onSelect={handleDateSelect}
             disabled={(date) => 
-              // Disable dates that are in the past or today
-              isBefore(date, tomorrow) ||
-              // Disable dates more than 1 month from now
-              isBefore(oneMonthLater, date)
+              // Disable dates that are before tomorrow
+              isBefore(date, tomorrow) || 
+              // Disable dates after the last available day
+              isAfter(date, lastAvailableDay) ||
+              // Disable weekends
+              isWeekend(date)
             }
             className="rounded-md border"
           />
