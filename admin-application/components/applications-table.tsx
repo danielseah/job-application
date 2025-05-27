@@ -27,6 +27,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogTrigger 
 } from "@/components/ui/dialog"
 import { createClient } from "@/utils/supabase/client"
 import { useToast } from "@/hooks/use-toast"
@@ -401,7 +402,7 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
       case "request_resume":
         return <Badge className="bg-indigo-100 text-indigo-700 border-indigo-200">Resume Requested</Badge>
       case "request_form":
-        return <Badge className="bg-purple-100 text-purple-700 border-purple-200">Form Requested</Badge>
+        return <Badge className="bg-purple-100 text-purple-700 border-purple-200 hover:bg-purple-300">Form Requested</Badge>
       case "waiting_review":
         return <Badge className="bg-orange-100 text-orange-700 border-orange-200">Under Review</Badge>
       case "request_interview_details":

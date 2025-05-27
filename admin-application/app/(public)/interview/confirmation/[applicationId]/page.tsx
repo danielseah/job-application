@@ -8,7 +8,7 @@ export default async function InterviewConfirmationPage({
 }: {
   params: { applicationId: string }
 }) {
-  const applicationId = params.applicationId
+  const { applicationId } = await params
   const supabase = await createClient()
 
   // Get booking details with application

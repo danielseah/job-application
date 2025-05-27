@@ -28,7 +28,7 @@ export default async function InterviewSchedulePage({
   // Verify the application exists and is in the correct state
   const { data: application, error: appError } = await supabase
     .from("applications")
-    .select("id, name, status, phone_number")
+    .select("id, name, current_step, phone_number")
     .eq("id", applicationId)
     .single()
 
@@ -37,7 +37,7 @@ export default async function InterviewSchedulePage({
   }
 
   // Check if application is approved for interview
-  if (application.status !== "selecting_interview_slot") {
+  if (application.current_step !== "waiting_interview_booking") {
     // Redirect to a page explaining the application isn't ready for interview scheduling
     return redirect(`/interview/not-eligible?id=${applicationId}`)
   }

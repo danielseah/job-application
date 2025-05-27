@@ -62,7 +62,7 @@ def root():
     return jsonify({"message": "Job Application Bot is running!"})
 
 # Interview scheduling and office information
-INTERVIEW_LINK_BASE = os.environ.get("INTERVIEW_LINK_BASE", "https://your-company.com/interview")
+INTERVIEW_LINK_BASE = os.environ.get("INTERVIEW_LINK_BASE", "https://2b00-151-192-105-138.ngrok-free.app/interview")
 OFFICE_DIRECTIONS = """
 As our facility is located in a heavily guarded area within Singapore, kindly provide us your *full name as per NRIC and NRIC number* in advance to facilitate the clearance with the Airport Police.
 

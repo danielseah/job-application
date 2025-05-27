@@ -11,6 +11,8 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       )
     }
+
+    console.log("Received interview booking data:", data)
     
     // Get the WhatsApp bot webhook URL from environment variables
     const chatbotWebhookUrl = process.env.CHATBOT_WEBHOOK_URL || "https://1c6f-151-192-105-138.ngrok-free.app/external-review-webhook"
