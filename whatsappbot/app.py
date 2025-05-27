@@ -1,6 +1,3 @@
-"""
-src/app.py - Windows-compatible version of the WhatsApp application bot
-"""
 import os
 import re
 import json
@@ -735,7 +732,8 @@ class ApplicationBot:
 
             elif event_type == "interview_booked":
                 interview_date_str = webhook_data.get("interview_date")
-                booking_code = webhook_data.get("booking_code")
+                # Updated to use pass_office_code instead of booking_code
+                pass_office_code = webhook_data.get("pass_office_code")
                 
                 try:
                     # Ensure interview_date_str is parsed correctly, assuming ISO format
@@ -754,20 +752,23 @@ class ApplicationBot:
                         "status": "interview_scheduled",
                         "interview_date": interview_date_str, # Store ISO string
                         "interview_confirmation": True,
-                        "booking_code": booking_code
+                        # Store pass_office_code instead of booking_code
+                        "pass_office_code": pass_office_code
                     }
                 ):
+                    # Updated message to include pass office information
                     confirmation_message = (
                         f"Hi {applicant_name},\n\n"
                         f"Your interview has been successfully scheduled for {interview_date_formatted} at {interview_time_formatted}.\n\n"
-                        f"Booking Code: {booking_code}\n\n"
+                        f"Pass Office Code: {pass_office_code}\n\n"
+                        f"Important: When you arrive at the Airport Police Pass Office, please mention this code to obtain your visitor pass.\n\n"
                         f"Office Location & Directions:\n{OFFICE_DIRECTIONS}\n\n"
                         "Your visitor pass will be prepared based on the details you provided. "
                         "We look forward to meeting you!"
                     )
                     messenger.send_message(confirmation_message, phone_number)
                     self._record_message(application_id, "bot", confirmation_message, "text")
-                    logger.info(f"Interview booking confirmed for application {application_id}. User notified.")
+                    logger.info(f"Interview booking confirmed for application {application_id}. User notified with pass code {pass_office_code}.")
 
             elif event_type == "form_submitted":
                 # This event confirms the Google Form was submitted by the applicant.
@@ -908,7 +909,7 @@ def health_check():
     return jsonify({
         "status": status,
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "version": "1.3.0", # Incremented version
+        "version": "1.4.0", # Incremented version for pass office update
         "dependencies": {
             "supabase": "ok" if db_ok else "error",
             "gemini": "ok" if gemini_ok else "error"

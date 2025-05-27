@@ -1,3 +1,5 @@
+// admin-application\app\(public)\interview\[applicationId]\page.tsx
+
 import { createClient } from "@/utils/supabase/server"
 import InterviewScheduler from "@/components/interview-scheduler"
 import { notFound, redirect } from "next/navigation"

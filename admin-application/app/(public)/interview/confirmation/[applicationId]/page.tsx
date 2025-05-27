@@ -1,3 +1,5 @@
+// admin-application\app\(public)\interview\confirmation\[applicationId]\page.tsx
+
 import { createClient } from "@/utils/supabase/server"
 import { notFound } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"

@@ -5,7 +5,7 @@ export async function POST(req: NextRequest) {
     const data = await req.json()
     
     // Validate request body
-    if (!data.application_id || !data.interview_date || !data.booking_code) {
+    if (!data.application_id || !data.interview_date || !data.pass_office_code) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
         application_id: data.application_id,
         event_type: "interview_booked",
         interview_date: data.interview_date,
-        booking_code: data.booking_code,
+        pass_office_code: data.pass_office_code,
         timestamp: new Date().toISOString(),
       }),
     })

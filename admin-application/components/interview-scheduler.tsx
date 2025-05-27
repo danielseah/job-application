@@ -1,4 +1,3 @@
-// admin-application\components\interview-scheduler.tsx
 "use client"
 
 import { useState } from "react"
@@ -131,20 +130,15 @@ export default function InterviewScheduler({
       const passOfficeCode = passNumberSuffix.toString(); // e.g., "900", "901"
       const visitorPassNumber = `ip-${format(selectedDate, "ddMMyy")}-${passOfficeCode}`; // e.g., ip-260525-900
       
-      // Generate a general booking code (if still needed, or could be same as passOfficeCode)
-      const generalBookingCode = Math.floor(100000 + Math.random() * 900000).toString()
-
       // Create the booking
       const { error: bookingError } = await supabase
         .from("interview_bookings")
         .insert({
           application_id: applicationId,
           interview_date: interviewDateTimeToStore,
-          booking_code: generalBookingCode, // Keep this if used elsewhere, or replace with passOfficeCode
           visitor_pass_number: visitorPassNumber,
           pass_office_code: passOfficeCode,
           attended: false, // Default value
-          // interview_notes is not set here
         })
 
       if (bookingError) {
@@ -170,14 +164,12 @@ export default function InterviewScheduler({
       }
 
       // Notify the WhatsApp bot about the booking
-      // IMPORTANT: Ensure your /api/notify-interview-booking endpoint can handle `pass_office_code`
       await fetch("/api/notify-interview-booking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           application_id: applicationId,
           interview_date: interviewDateTimeToStore,
-          booking_code: generalBookingCode, // Or passOfficeCode if that's what user needs
           pass_office_code: passOfficeCode, // Send the 3-digit pass office code
         }),
       })

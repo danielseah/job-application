@@ -1,4 +1,3 @@
-// admin-application/components/pass-office-table.tsx
 "use client"
 
 import { useState, useEffect } from "react"
@@ -22,15 +21,10 @@ function utcToZonedTime(date: Date, timeZone: string): Date {
   return date;
 }
 
-interface UserData {
-  [key: string]: any;
-}
-
 // Extend jsPDF with autoTable, if types are not picked up automatically
 interface jsPDFWithAutoTable extends jsPDF {
   autoTable: (options: any) => jsPDF;
 }
-
 
 export default function PassOfficeTable({ 
   initialBookings,
@@ -51,7 +45,6 @@ export default function PassOfficeTable({
   const [notes, setNotes] = useState<Record<string, string>>({}) // bookingId -> note
   const [isLoading, setIsLoading] = useState(false)
 
-
   useEffect(() => {
     // Update bookings when initialBookings prop changes (e.g., due to date change via URL)
     setBookings(initialBookings);
@@ -64,7 +57,6 @@ export default function PassOfficeTable({
     });
     setNotes(initialNotes);
   }, [initialBookings]);
-
 
   const handleDateChange = (date: Date | undefined) => {
     if (date) {
@@ -100,6 +92,7 @@ export default function PassOfficeTable({
       .from("applications")
       .update({ interview_step: attended })
       .eq("id", bookings.find(b => b.id === bookingId)?.application_id)
+    
     if (stepError) {
       toast({ title: "Error", description: "Failed to update interview step.", variant: "destructive" })
     }
@@ -158,7 +151,6 @@ export default function PassOfficeTable({
     const splitBodyText = doc.splitTextToSize(bodyText, 180); // 180 is the max width
     doc.text(splitBodyText, 14, 95);
 
-
     const tableColumn = ["Serial No.", "Full Name", "NRIC/Passport No."];
     const tableRows: (string | null)[][] = [];
 
@@ -174,7 +166,7 @@ export default function PassOfficeTable({
     doc.autoTable({
       head: [tableColumn],
       body: tableRows,
-      startY: doc.autoTable.previous.finalY ? doc.autoTable.previous.finalY + 10 : 115, // Adjust startY based on text above
+      startY: 115, // Adjust startY based on text above
       theme: 'grid',
       headStyles: { fillColor: [22, 160, 133] }, // Example header color
       styles: { fontSize: 9, cellPadding: 2 },
@@ -189,10 +181,8 @@ export default function PassOfficeTable({
     doc.text("Yours faithfully,", 14, doc.autoTable.previous.finalY + 25);
     doc.text("For CPO PTE LTD (MIRAE)", 14, doc.autoTable.previous.finalY + 40);
 
-
     doc.save(`Visitor_Pass_List_${format(selectedDate, "yyyy-MM-dd")}.pdf`);
   };
-
 
   return (
     <div className="space-y-4">

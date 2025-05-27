@@ -1,3 +1,5 @@
+// admin-application\app\(protected)\interview-slots\page.tsx
+
 import { createClient } from "@/utils/supabase/server"
 import { redirect } from "next/navigation"
 import InterviewCalendarView from "@/components/interview-calendar-view"

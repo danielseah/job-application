@@ -1,7 +1,6 @@
-
 import { createClient } from "@/utils/supabase/client"
 import PassOfficeTable from "@/components/pass-office-table"
-import { subDays, formatISO, startOfDay, endOfDay, parseISO } from 'date-fns';
+import { formatISO, startOfDay, endOfDay, parseISO } from 'date-fns';
 
 // Helper functions to replace date-fns-tz functionality
 function zonedToUtc(date: Date, timeZone: string): Date {
@@ -67,6 +66,7 @@ async function getPassOfficeData(date: Date): Promise<PassOfficeBooking[]> {
     console.error("Error fetching pass office data:", error)
     return []
   }
+  
   // Ensure applications is not null, provide default if it is
   return data.map(item => ({
     ...item,
@@ -74,13 +74,12 @@ async function getPassOfficeData(date: Date): Promise<PassOfficeBooking[]> {
   })) as PassOfficeBooking[];
 }
 
-// Fix: Make the page component properly handle dynamic searchParams
 export default async function PassOfficePage({
   searchParams,
 }: {
   searchParams?: { [key: string]: string | string[] | undefined };
 }) {
-  // Fix: Convert searchParams to a resolved object before accessing properties
+  // Get date parameter from URL or use current date
   const resolvedParams = searchParams || {};
   const selectedDateParam = resolvedParams.date as string | undefined;
   
