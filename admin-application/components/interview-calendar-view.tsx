@@ -37,7 +37,7 @@ interface Applicant {
 
 interface Booking {
   id: string
-  booking_code: string
+  visitor_pass_number: string
   interview_date: string
   created_at: string
   applications: Applicant
@@ -160,7 +160,7 @@ export default function InterviewCalendarView({
                     <TableRow>
                       <TableHead>Applicant</TableHead>
                       <TableHead>Phone</TableHead>
-                      <TableHead>Booking Code</TableHead>
+                      <TableHead>Serial number</TableHead>
                       <TableHead>Red Flags</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -173,7 +173,7 @@ export default function InterviewCalendarView({
                       >
                         <TableCell className="font-medium">{booking.applications.name}</TableCell>
                         <TableCell>{booking.applications.phone_number}</TableCell>
-                        <TableCell>{booking.booking_code}</TableCell>
+                        <TableCell>{booking.visitor_pass_number}</TableCell>
                         <TableCell>
                           {booking.applications.red_flags > 0 ? (
                             <div className="flex items-center text-red-500">
@@ -212,7 +212,7 @@ export default function InterviewCalendarView({
                     <TableHead>Time</TableHead>
                     <TableHead>Applicant</TableHead>
                     <TableHead>Phone</TableHead>
-                    <TableHead>Booking Code</TableHead>
+                    <TableHead>Serial Number</TableHead>
                     <TableHead>Red Flags</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -227,7 +227,7 @@ export default function InterviewCalendarView({
                       <TableCell>3:00 PM</TableCell>
                       <TableCell className="font-medium">{booking.applications.name}</TableCell>
                       <TableCell>{booking.applications.phone_number}</TableCell>
-                      <TableCell>{booking.booking_code}</TableCell>
+                      <TableCell>{booking.visitor_pass_number}</TableCell>
                       <TableCell>
                         {booking.applications.red_flags > 0 ? (
                           <div className="flex items-center text-red-500">

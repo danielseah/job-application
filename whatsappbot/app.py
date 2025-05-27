@@ -328,8 +328,15 @@ class ApplicationBot:
                 "current_step": new_step,
                 "attempts_counter": 0, # Reset attempts when moving to a new step
                 "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
-            }
-            if additional_data:
+            }         
+
+            # Make sure additional_data is not None before accessing it
+            if additional_data is not None:
+                # Check and remove pass_office_code if present
+                if "pass_office_code" in additional_data:
+                    del additional_data["pass_office_code"]
+                
+                # Update with any remaining additional data
                 update_data.update(additional_data)
 
             logger.info(f"Updating application {application_id} to step '{new_step}' with data: {additional_data}")
@@ -518,10 +525,11 @@ class ApplicationBot:
             # Check if the form was actually submitted via webhook
             try:
                 # Look for form_submission event in webhook_events table
-                webhook_result = self.db.table("webhook_events").select("*") \
-                    .eq("application_id", application["id"]) \
-                    .eq("event_type", "form_submitted") \
+                webhook_result = self.db.table("applications").select("*") \
+                    .eq("id", application["id"]) \
+                    .eq("status", "form_submitted") \
                     .execute()
+                
                 
                 # If we found a form_submitted webhook event, the form was truly submitted
                 if webhook_result.data and len(webhook_result.data) > 0:
@@ -730,6 +738,7 @@ class ApplicationBot:
                     self._record_message(application_id, "bot", message_to_send, "text")
 
             elif event_type == "interview_booked":
+                logger.info(f"Received interview booking confirmation for application {application_id}.")
                 interview_date_str = webhook_data.get("interview_date")
                 # Updated to use pass_office_code instead of booking_code
                 pass_office_code = webhook_data.get("pass_office_code")

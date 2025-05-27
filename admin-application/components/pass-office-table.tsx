@@ -14,16 +14,11 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { createClient } from "@/utils/supabase/client"
 import { useToast } from "@/hooks/use-toast"
 import jsPDF from "jspdf"
-import "jspdf-autotable"
+import autoTable from "jspdf-autotable"
 
 function utcToZonedTime(date: Date, timeZone: string): Date {
   // Simple implementation - just return the date since we're mainly using it for display
   return date;
-}
-
-// Extend jsPDF with autoTable, if types are not picked up automatically
-interface jsPDFWithAutoTable extends jsPDF {
-  autoTable: (options: any) => jsPDF;
 }
 
 export default function PassOfficeTable({ 
@@ -121,67 +116,81 @@ export default function PassOfficeTable({
   }
 
   const generatePDF = () => {
-    const doc = new jsPDF() as jsPDFWithAutoTable;
-    const formattedSelectedDate = format(selectedDate, "dd MMMM yyyy");
-    const validityEndDate = format(addDays(selectedDate, 3), "dd MMMM yyyy");
+    try {
+      const doc = new jsPDF();
+      const formattedSelectedDate = format(selectedDate, "dd MMMM yyyy");
+      const validityEndDate = format(addDays(selectedDate, 3), "dd MMMM yyyy");
 
-    // Header
-    doc.setFontSize(12);
-    doc.setFont("helvetica", "bold");
-    doc.text("CPO PTE LTD (MIRAE)", 14, 20);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text("Address: 115 Airport Cargo Road, #07-18 Cargo Agents Building C, Singapore 819466", 14, 26);
-    doc.text("Fax: +1 973-327-3824   Mob: +65 8028 5950", 14, 32);
+      // Header
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "bold");
+      doc.text("CPO PTE LTD (MIRAE)", 14, 20);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.text("Address: 115 Airport Cargo Road, #07-18 Cargo Agents Building C, Singapore 819466", 14, 26);
+      doc.text("Fax: +1 973-327-3824   Mob: +65 8028 5950", 14, 32);
 
-    doc.text(format(new Date(), "dd MMMM yyyy"), 14, 45); // Current date of PDF generation
+      doc.text(format(new Date(), "dd MMMM yyyy"), 14, 45); // Current date of PDF generation
 
-    doc.text("The Officer-In-Charge", 14, 55);
-    doc.text("Changi Airport Police Division", 14, 60);
-    doc.text("Pass Office", 14, 65);
+      doc.text("The Officer-In-Charge", 14, 55);
+      doc.text("Changi Airport Police Division", 14, 60);
+      doc.text("Pass Office", 14, 65);
 
-    doc.setFont("helvetica", "bold");
-    doc.text("Dear Sir/Madam,", 14, 75);
-    doc.text("RE: VISITOR PASS APPLICATION", 14, 85);
-    doc.setFont("helvetica", "normal");
+      doc.setFont("helvetica", "bold");
+      doc.text("Dear Sir/Madam,", 14, 75);
+      doc.text("RE: VISITOR PASS APPLICATION", 14, 85);
+      doc.setFont("helvetica", "normal");
 
-    const bodyText = `This is to certify that the below mentioned personnel has been approved by our company to enter Changi Airfreight Centre for an interview in our premise at Cargo Agents Building C on ${formattedSelectedDate} to ${validityEndDate}.`;
-    
-    // Use splitTextToSize for automatic wrapping
-    const splitBodyText = doc.splitTextToSize(bodyText, 180); // 180 is the max width
-    doc.text(splitBodyText, 14, 95);
+      const bodyText = `This is to certify that the below mentioned personnel has been approved by our company to enter Changi Airfreight Centre for an interview in our premise at Cargo Agents Building C on ${formattedSelectedDate} to ${validityEndDate}.`;
+      
+      // Use splitTextToSize for automatic wrapping
+      const splitBodyText = doc.splitTextToSize(bodyText, 180); // 180 is the max width
+      doc.text(splitBodyText, 14, 95);
 
-    const tableColumn = ["Serial No.", "Full Name", "NRIC/Passport No."];
-    const tableRows: (string | null)[][] = [];
+      const tableColumn = ["Serial No.", "Full Name", "NRIC/Passport No."];
+      const tableRows: (string | null)[][] = [];
 
-    bookings.forEach(booking => {
-      const bookingData = [
-        booking.visitor_pass_number || "N/A",
-        booking.applications?.name || "N/A",
-        booking.applications?.nric || "N/A"
-      ];
-      tableRows.push(bookingData);
-    });
+      bookings.forEach(booking => {
+        const bookingData = [
+          booking.visitor_pass_number || "N/A",
+          booking.applications?.name || "N/A",
+          booking.applications?.nric || "N/A"
+        ];
+        tableRows.push(bookingData);
+      });
 
-    doc.autoTable({
-      head: [tableColumn],
-      body: tableRows,
-      startY: 115, // Adjust startY based on text above
-      theme: 'grid',
-      headStyles: { fillColor: [22, 160, 133] }, // Example header color
-      styles: { fontSize: 9, cellPadding: 2 },
-      columnStyles: {
-        0: { cellWidth: 40 }, // Serial No.
-        1: { cellWidth: 'auto' }, // Full Name
-        2: { cellWidth: 50 }, // NRIC
-      }
-    });
-    
-    doc.text("Thank you for your kind attention.", 14, doc.autoTable.previous.finalY + 15);
-    doc.text("Yours faithfully,", 14, doc.autoTable.previous.finalY + 25);
-    doc.text("For CPO PTE LTD (MIRAE)", 14, doc.autoTable.previous.finalY + 40);
+      // Using autoTable as an imported function instead of a method on doc
+      const tableY = 115;
+      autoTable(doc, {
+        head: [tableColumn],
+        body: tableRows,
+        startY: tableY,
+        theme: 'grid',
+        headStyles: { fillColor: [22, 160, 133] },
+        styles: { fontSize: 9, cellPadding: 2 },
+        columnStyles: {
+          0: { cellWidth: 40 }, // Serial No.
+          1: { cellWidth: 'auto' }, // Full Name
+          2: { cellWidth: 50 }, // NRIC
+        }
+      });
+      
+      // Get the final Y position after the table is drawn
+      const finalY = (doc as any).lastAutoTable.finalY;
+      
+      doc.text("Thank you for your kind attention.", 14, finalY + 15);
+      doc.text("Yours faithfully,", 14, finalY + 25);
+      doc.text("For CPO PTE LTD (MIRAE)", 14, finalY + 40);
 
-    doc.save(`Visitor_Pass_List_${format(selectedDate, "yyyy-MM-dd")}.pdf`);
+      doc.save(`Visitor_Pass_List_${format(selectedDate, "yyyy-MM-dd")}.pdf`);
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+      toast({ 
+        title: "Error", 
+        description: "Failed to generate PDF. Please try again.",
+        variant: "destructive" 
+      });
+    }
   };
 
   return (

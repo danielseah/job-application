@@ -22,7 +22,7 @@ export default async function InterviewSlotsPage() {
     .from("interview_bookings")
     .select(`
       id,
-      booking_code,
+      visitor_pass_number,
       interview_date,
       created_at,
       applications (
@@ -38,6 +38,8 @@ export default async function InterviewSlotsPage() {
     .gte("interview_date", today.toISOString())
     .lte("interview_date", nextMonth.toISOString())
     .order("interview_date", { ascending: true })
+
+  console.log("Bookings fetched:", bookings)
   
   return (
     <div className="container py-10">

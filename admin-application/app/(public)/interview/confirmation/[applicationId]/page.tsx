@@ -1,4 +1,4 @@
-// admin-application\app\(public)\interview\confirmation\[applicationId]\page.tsx
+// app/(public)/interview/confirmation/[applicationId]/page.tsx
 
 import { createClient } from "@/utils/supabase/server"
 import { notFound } from "next/navigation"
@@ -10,14 +10,14 @@ export default async function InterviewConfirmationPage({
 }: {
   params: { applicationId: string }
 }) {
-  const { applicationId } = await params
+  const { applicationId } = params // Removed unnecessary await
   const supabase = await createClient()
 
   // Get booking details with application
   const { data: booking, error } = await supabase
     .from("interview_bookings")
     .select(`
-      booking_code,
+      pass_office_code,
       interview_date,
       applications (
         name
@@ -27,9 +27,10 @@ export default async function InterviewConfirmationPage({
     .single()
 
   if (error || !booking) {
+    console.error("Error fetching booking:", error)
     notFound()
   }
-
+  
   // Format the interview date and time
   const interviewDate = parseISO(booking.interview_date)
   const formattedDate = format(interviewDate, "EEEE, MMMM d, yyyy")
@@ -63,7 +64,7 @@ export default async function InterviewConfirmationPage({
             </div>
 
             <div className="space-y-2">
-              <h3 className="font-medium">Dear {booking.applications.name},</h3>
+              <h3 className="font-medium">Dear {booking.applications?.name || 'Applicant'},</h3>
               <p>Your interview has been successfully scheduled.</p>
             </div>
 
@@ -80,7 +81,7 @@ export default async function InterviewConfirmationPage({
                 </div>
                 <div className="flex justify-between">
                   <span className="font-medium">Booking Code:</span>
-                  <span className="font-bold">{booking.booking_code}</span>
+                  <span className="font-bold">{booking.pass_office_code}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="font-medium">Interview Type:</span>
