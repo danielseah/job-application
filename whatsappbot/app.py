@@ -73,9 +73,9 @@ Do bring a pen as there will be a small slip of paper you need to fill in as wel
 
 When you are at the Airport Police Pass Office, please proceed to counter 1, 2, 3 and 4 in order to exchange passes. Please inform them that you are attending an interview. Please also inform them that the authorisation has been given by an agent company called Mirae. (Note: do not go to the SIA counter to exchange your pass.)
 
-After receiving the visitor pass, you may then take any bus such as 9, 19, 89 or even the express bus 89e from the bus stop where you’ve alighted earlier to enter the protected area.  Additionally, you can enter by your personal vehicle after clearing the pass office.
+After receiving the visitor pass, you may then take any bus such as 9, 19, 89 or even the express bus 89e from the bus stop where you've alighted earlier to enter the protected area.  Additionally, you can enter by your personal vehicle after clearing the pass office.
 
-Once you’ve cleared the protected area checkpoint, please alight at 3rd Cargo Agents Building (95051) which is three 3 bus stops after to access the area. Please note that the bus might skip certain stops when there is no one. So please do not count the number of times the bus stopped. 
+Once you've cleared the protected area checkpoint, please alight at 3rd Cargo Agents Building (95051) which is three 3 bus stops after to access the area. Please note that the bus might skip certain stops when there is no one. So please do not count the number of times the bus stopped. 
 
 Finally, head over to the office lobby where there would be 3 elevators. Once you've arrived, kindly report to #07-18
 
@@ -506,8 +506,8 @@ class ApplicationBot:
         if "error" in gemini_response:
             return gemini_response.get("response", "I'm having trouble processing your information. Could you please provide your full name and NRIC number clearly? This is required for office access.")
 
-        # Get current stored values
-        current_name = application.get("name", "")
+        # Get current stored values from the application
+        current_name = application.get("name", "Applicant")  # Default name if not set
         current_nric = application.get("nric", "")
         
         # Get what Gemini extracted from this message
@@ -526,40 +526,43 @@ class ApplicationBot:
             current_nric = extracted_nric  # Update local variable too
 
         if update_data:  # If Gemini extracted anything, update the DB
-            self.db.table("applications").update(update_data).eq("id", application["id"]).execute()
-            # Update the application dictionary with the new values
-            application.update(update_data)
+            try:
+                self.db.table("applications").update(update_data).eq("id", application["id"]).execute()
+                # Update the application dictionary with the new values
+                application.update(update_data)
+                logger.info(f"Updated application {application['id']} with: {update_data}")
+            except Exception as e:
+                logger.error(f"Error updating application {application['id']}: {e}", exc_info=True)
+                return "I had trouble saving your information. Please try again."
 
         # Check if we have both name and NRIC now (either from this message or previous ones)
-        have_name = bool(current_name) or name_provided
+        # Only consider name as provided if it's not the default "Applicant"
+        have_name = bool(current_name and current_name != "Applicant") or name_provided
         have_nric = bool(current_nric) or nric_provided
         
         if have_name and have_nric:
             # Both are available (either from current message or stored previously)
-            self._update_application_step(
-                application["id"],
-                STEPS["request_interview_details"],  # Moves to waiting_interview_booking
-                {"pass_step": True}  # Indicates NRIC/Name collected for pass
-            )
+            try:
+                self._update_application_step(
+                    application["id"],
+                    STEPS["request_interview_details"],  # Moves to waiting_interview_booking
+                    {"pass_step": True}  # Indicates NRIC/Name collected for pass
+                )
 
-            # Change status to 'selecting_interview_slot'
-            self._update_application_step(
-                application["id"],
-                STEPS["selecting_interview_slot"],
-                {"pass_step": True}
-            )
-
-            # Generate unique interview link with application ID
-            interview_link = f"{INTERVIEW_LINK_BASE}/{application['id']}"
-            
-            # Use the most up-to-date name we have
-            display_name = current_name if current_name else extracted_name
-            
-            return (f"Thank you, {display_name}! We have your details for the visitor pass.\n\n"
-                    f"Please book your interview slot using this link: {interview_link}\n\n"
-                    f"{OFFICE_DIRECTIONS}\n\n"
-                    "Our interviews are group sessions held daily at 3:00 PM SGT. "
-                    "Once you've booked your slot, we'll send you a confirmation message with your booking code.")
+                # Generate unique interview link with application ID
+                interview_link = f"{INTERVIEW_LINK_BASE}/{application['id']}"
+                
+                # Use the most up-to-date name we have
+                display_name = current_name if current_name and current_name != "Applicant" else extracted_name
+                
+                return (f"Thank you, {display_name}! We have your details for the visitor pass.\n\n"
+                        f"Please book your interview slot using this link: {interview_link}\n\n"
+                        f"{OFFICE_DIRECTIONS}\n\n"
+                        "Our interviews are group sessions held daily at 3:00 PM SGT. "
+                        "Once you've booked your slot, we'll send you a confirmation message with your booking code.")
+            except Exception as e:
+                logger.error(f"Error updating application step for {application['id']}: {e}", exc_info=True)
+                return "I had trouble processing your details. Please contact our support team."
         else:
             # We're still missing information - let the user know what we need
             missing_parts = []
@@ -572,7 +575,6 @@ class ApplicationBot:
                 return response_from_gemini
             else:  # Fallback if Gemini provides no specific response
                 return f"We still need your {' and '.join(missing_parts)} to proceed with interview scheduling and your visitor pass."
-
 
     def _handle_waiting_interview_booking(self, application: Dict, message: str,
                                  message_type: str, message_data: Dict) -> str:
@@ -801,7 +803,7 @@ def health_check():
     return jsonify({
         "status": "ok",
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "version": "1.2.0" # Incremented version
+        "version": "1.2.1" # Incremented version for the fix
     })
 
 if __name__ == '__main__':
