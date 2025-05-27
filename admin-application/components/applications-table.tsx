@@ -1,3 +1,5 @@
+// admin-application\components\applications-table.tsx
+
 "use client"
 
 import { useState } from "react"
@@ -48,7 +50,7 @@ type Application = {
   form_step: boolean
   red_flags: number
   red_flag_reasons: string[] | string | null
-  calendar_step: boolean
+  interview_confirmation: boolean
   pass_step: boolean
   interview_step: boolean
   current_step: string
@@ -353,7 +355,7 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
       application.resume_step,
       application.form_step, 
       application.pass_step,
-      application.calendar_step,
+      application.interview_confirmation,
       application.interview_step
     ];
     
@@ -603,7 +605,7 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <div className={`w-7 h-7 rounded-full flex items-center justify-center ${
-                                application.calendar_step 
+                                application.interview_confirmation 
                                   ? 'bg-green-100 border-green-400 text-green-600' 
                                   : 'bg-gray-100 border-gray-300 text-gray-400'
                               } border`}>
@@ -613,7 +615,7 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
                             <TooltipContent>
                               <p>Interview Scheduled</p>
                               <p className="text-xs text-gray-500">
-                                {application.calendar_step ? "Booked" : "Not Scheduled"}
+                                {application.interview_confirmation ? "Booked" : "Not Scheduled"}
                               </p>
                             </TooltipContent>
                           </Tooltip>
@@ -828,13 +830,13 @@ export function ApplicationsTable({ applications: initialApplications }: { appli
                       
                       <div className="flex items-center gap-2">
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                          selectedApplication.calendar_step 
+                          selectedApplication.interview_confirmation 
                             ? 'bg-green-100 text-green-600' 
                             : 'bg-gray-100 text-gray-400'
                         }`}>
                           <Calendar className="h-3 w-3" />
                         </div>
-                        <span className={`text-sm ${selectedApplication.calendar_step ? 'text-green-600' : 'text-gray-600'}`}>
+                        <span className={`text-sm ${selectedApplication.interview_confirmation ? 'text-green-600' : 'text-gray-600'}`}>
                           Interview Scheduled
                         </span>
                       </div>

@@ -1,3 +1,4 @@
+// admin-application\components\interview-scheduler.tsx
 "use client"
 
 import { useState } from "react"
@@ -30,45 +31,48 @@ export default function InterviewScheduler({
   const { toast } = useToast()
   const supabase = createClient()
 
+  const DAILY_INTERVIEW_LIMIT = 20;
+  const PASS_NUMBER_START = 900;
+
   // Function to check if a date has available slots
   const checkAvailability = async (date: Date) => {
     setIsCheckingAvailability(true)
     setSlotsAvailable(null)
 
     try {
-      // Format date to match database format (YYYY-MM-DD)
-      const formattedDate = format(date, "yyyy-MM-dd")
+      const dateStr = format(date, "yyyy-MM-dd")
       
-      // Count existing bookings for this date
+      // Count existing bookings for this day
       const { count, error } = await supabase
         .from("interview_bookings")
         .select("*", { count: 'exact', head: true })
-        .eq("interview_date", `${formattedDate}T15:00:00+08:00`) // SGT time zone
+        .gte("interview_date", `${dateStr}T00:00:00+08:00`) // Start of day SGT
+        .lt("interview_date", `${format(addDays(date, 1), "yyyy-MM-dd")}T00:00:00+08:00`) // Start of next day SGT
 
       if (error) {
+        console.error("Error checking availability:", error)
         throw new Error(error.message)
       }
       
-      // Calculate available spots (total 20 per day)
-      const availableSpots = 20 - (count || 0)
+      const availableSpots = DAILY_INTERVIEW_LIMIT - (count || 0)
       setSlotsAvailable(availableSpots)
       
       return availableSpots > 0
     } catch (error) {
       console.error("Error checking availability:", error)
-      setSlotsAvailable(null)
+      setSlotsAvailable(0) // Assume no spots if error
       return false
     } finally {
       setIsCheckingAvailability(false)
     }
   }
 
-  // Handle date selection
   const handleDateSelect = async (date: Date | undefined) => {
     setSelectedDate(date)
-    
     if (date) {
       await checkAvailability(date)
+    } else {
+      setSlotsAvailable(null)
     }
   }
 
@@ -85,29 +89,66 @@ export default function InterviewScheduler({
     setIsSubmitting(true)
 
     try {
-      // Check availability one more time
-      const isAvailable = await checkAvailability(selectedDate)
-      
-      if (!isAvailable) {
-        throw new Error("Sorry, this date is no longer available. Please select another date.")
+      // Re-check availability just before booking
+      const isStillAvailable = await checkAvailability(selectedDate)
+      if (!isStillAvailable || (slotsAvailable !== null && slotsAvailable <= 0)) {
+         toast({
+          title: "Slot Not Available",
+          description: "Sorry, this date/time slot is no longer available or fully booked. Please select another date.",
+          variant: "destructive",
+        })
+        setIsSubmitting(false)
+        return
       }
 
-      // Format the date for storage
-      const formattedDate = `${format(selectedDate, "yyyy-MM-dd")}T15:00:00+08:00` // SGT timezone
+      const sgtDateString = format(selectedDate, "yyyy-MM-dd")
+      const interviewDateTimeToStore = `${sgtDateString}T15:00:00+08:00` // Fixed time for interview
+
+      // Count existing bookings for this specific day to determine pass number
+      const { count: bookingsOnThisDay, error: countErr } = await supabase
+        .from("interview_bookings")
+        .select("*", { count: 'exact', head: true })
+        .gte("interview_date", `${sgtDateString}T00:00:00+08:00`)
+        .lt("interview_date", `${format(addDays(selectedDate, 1), "yyyy-MM-dd")}T00:00:00+08:00`)
+
+      if (countErr) {
+        console.error("Error counting bookings for pass generation:", countErr)
+        throw new Error("Failed to generate pass number. " + countErr.message)
+      }
+
+      const currentBookingsCount = bookingsOnThisDay || 0;
+      if (currentBookingsCount >= DAILY_INTERVIEW_LIMIT) {
+        toast({
+          title: "Limit Reached",
+          description: "Maximum number of interview slots for this day has been reached.",
+          variant: "destructive",
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
+      const passNumberSuffix = PASS_NUMBER_START + currentBookingsCount;
+      const passOfficeCode = passNumberSuffix.toString(); // e.g., "900", "901"
+      const visitorPassNumber = `ip-${format(selectedDate, "ddMMyy")}-${passOfficeCode}`; // e.g., ip-260525-900
       
-      // Generate a booking code (6-digit random number as string)
-      const bookingCode = Math.floor(100000 + Math.random() * 900000).toString()
+      // Generate a general booking code (if still needed, or could be same as passOfficeCode)
+      const generalBookingCode = Math.floor(100000 + Math.random() * 900000).toString()
 
       // Create the booking
       const { error: bookingError } = await supabase
         .from("interview_bookings")
         .insert({
           application_id: applicationId,
-          interview_date: formattedDate,
-          booking_code: bookingCode,
+          interview_date: interviewDateTimeToStore,
+          booking_code: generalBookingCode, // Keep this if used elsewhere, or replace with passOfficeCode
+          visitor_pass_number: visitorPassNumber,
+          pass_office_code: passOfficeCode,
+          attended: false, // Default value
+          // interview_notes is not set here
         })
 
       if (bookingError) {
+        console.error("Supabase booking error:", bookingError);
         throw new Error(bookingError.message)
       }
 
@@ -116,36 +157,41 @@ export default function InterviewScheduler({
         .from("applications")
         .update({ 
           status: "interview_scheduled",
-          interview_date: formattedDate,
-          interview_confirmation: true,
-          current_step: "confirmation"
+          interview_date: interviewDateTimeToStore,
+          interview_confirmation: true, // This seems to indicate they confirmed the slot
+          current_step: "confirmation" // "confirmation" means interview is booked
         })
         .eq("id", applicationId)
 
       if (updateError) {
+        // Potentially roll back booking or log inconsistency
+        console.error("Supabase application update error:", updateError);
         throw new Error(updateError.message)
       }
 
       // Notify the WhatsApp bot about the booking
+      // IMPORTANT: Ensure your /api/notify-interview-booking endpoint can handle `pass_office_code`
       await fetch("/api/notify-interview-booking", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           application_id: applicationId,
-          interview_date: formattedDate,
-          booking_code: bookingCode,
+          interview_date: interviewDateTimeToStore,
+          booking_code: generalBookingCode, // Or passOfficeCode if that's what user needs
+          pass_office_code: passOfficeCode, // Send the 3-digit pass office code
         }),
       })
 
-      // Redirect to confirmation page
-      router.push(`/interview/confirmation/${applicationId}`)
+      toast({
+        title: "Interview Booked!",
+        description: `Interview scheduled for ${format(selectedDate, "MMMM d, yyyy")} at 3:00 PM. Pass code: ${passOfficeCode}`,
+      });
+      router.push(`/interview/confirmation/${applicationId}`) // Assuming this page shows confirmation details
     } catch (error: any) {
       console.error("Error booking interview:", error)
       toast({
-        title: "Error",
-        description: error.message || "Failed to book the interview",
+        title: "Booking Error",
+        description: error.message || "Failed to book the interview. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -153,34 +199,41 @@ export default function InterviewScheduler({
     }
   }
 
-  // Get today's date
   const today = startOfDay(new Date())
-  
-  // Calculate tomorrow's date
   let tomorrow = addDays(today, 1)
-  // If tomorrow is weekend, move to next Monday
   if (isWeekend(tomorrow)) {
-    tomorrow = nextMonday(today)
+    tomorrow = nextMonday(tomorrow) // Use tomorrow as base for nextMonday if tomorrow is weekend
   }
   
-  // Calculate the end date (5 working days from tomorrow)
-  const getNext5WorkingDays = (startDate: Date): Date => {
+  const getNextNWorkingDaysEnd = (startDate: Date, N: number): Date => {
     let workingDaysCount = 0
     let currentDay = startDate
-    let endDate = startDate
+    // If startDate itself is a working day, it counts as the first.
+    // The prompt says "next 5 working days ... are available", implying starting from tomorrow.
+    // So, if tomorrow is Mon, then Mon, Tue, Wed, Thu, Fri are available.
     
-    while (workingDaysCount < 5) {
+    // Adjust startDate to be the first actual available day
+    let firstAvailableDay = startDate;
+    while(isWeekend(firstAvailableDay) || isBefore(firstAvailableDay, tomorrow)) {
+        firstAvailableDay = addDays(firstAvailableDay, 1);
+    }
+    if (isWeekend(firstAvailableDay)) firstAvailableDay = nextMonday(firstAvailableDay);
+
+
+    currentDay = addDays(firstAvailableDay, -1); // Start counting from day before first available
+    let endDate = firstAvailableDay;
+
+    while (workingDaysCount < N) {
       currentDay = addDays(currentDay, 1)
       if (!isWeekend(currentDay)) {
         workingDaysCount++
         endDate = currentDay
       }
     }
-    
     return endDate
   }
   
-  const lastAvailableDay = getNext5WorkingDays(tomorrow)
+  const lastAvailableDay = getNextNWorkingDaysEnd(tomorrow, 5)
   
   return (
     <div className="space-y-6">
@@ -191,7 +244,7 @@ export default function InterviewScheduler({
             <p className="text-sm text-gray-500">
               Please select an available date for your interview.
               All interviews take place at 3:00 PM (Singapore Time).
-              Only the next 5 working days (Monday-Friday) are available for scheduling.
+              Only the next 5 working days (Monday-Friday, starting from tomorrow) are available for scheduling.
             </p>
           </div>
           
@@ -200,14 +253,13 @@ export default function InterviewScheduler({
             selected={selectedDate}
             onSelect={handleDateSelect}
             disabled={(date) => 
-              // Disable dates that are before tomorrow
-              isBefore(date, tomorrow) || 
-              // Disable dates after the last available day
-              isAfter(date, lastAvailableDay) ||
-              // Disable weekends
+              isBefore(startOfDay(date), startOfDay(tomorrow)) || 
+              isAfter(startOfDay(date), startOfDay(lastAvailableDay)) ||
               isWeekend(date)
             }
             className="rounded-md border"
+            fromDate={tomorrow} // Visually suggest starting from tomorrow
+            toDate={lastAvailableDay} // Visually suggest end date
           />
         </CardContent>
       </Card>
@@ -222,10 +274,10 @@ export default function InterviewScheduler({
             {isCheckingAvailability ? (
               <p className="text-sm text-blue-700 mt-2">Checking availability...</p>
             ) : slotsAvailable !== null ? (
-              <p className="text-sm text-green-700 mt-2">
+              <p className={`text-sm mt-2 ${slotsAvailable > 0 ? 'text-green-700' : 'text-red-700'}`}>
                 {slotsAvailable > 0 
-                  ? `${slotsAvailable} of 20 spots remaining`
-                  : "No spots remaining for this date"}
+                  ? `${slotsAvailable} of ${DAILY_INTERVIEW_LIMIT} spots remaining for this day.`
+                  : "No spots remaining for this day."}
               </p>
             ) : null}
           </div>

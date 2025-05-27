@@ -188,7 +188,7 @@ GEMINI_MODELS = {
         """
     },
     "request_interview_details": {
-        "model_name": "gemini-1.5-flash-preview-0514", # Updated model name
+        "model_name": "gemini-2.5-flash-preview-05-20", # Updated model name
         "temperature": 0.1,
         "instructions": """
         You are an HR assistant. The applicant has been approved for an interview.
@@ -382,7 +382,7 @@ class ApplicationBot:
             model = genai.GenerativeModel(
                 model_name=model_config["model_name"],
                 generation_config={"temperature": model_config["temperature"]},
-                system_instructions=model_config["instructions"] # system_instructions for newer models
+                system_instruction=model_config["instructions"] # system_instructions for newer models
             )
             full_prompt = f"User message: {user_message}" # Ensure user_message is always a string
             if not user_message: # Handle cases where user sends e.g. only an image with no caption
@@ -441,11 +441,7 @@ class ApplicationBot:
         period_in_months = gemini_response.get("period_in_months", 0)
 
         db_update_payload = {
-            "commitment_details": json.dumps({ # Store as JSON string if column type is text
-                "stated_period": commitment_period,
-                "stated_months": period_in_months,
-                "sufficient_for_role": commitment_sufficient
-            })
+
         }
 
         if commitment_sufficient:
@@ -460,18 +456,6 @@ class ApplicationBot:
 
             return f"{positive_response} The next step is to upload your resume or CV. You can send it as a document (PDF, DOC, DOCX) or paste its content as text."
         else:
-            # Commitment is insufficient. Ask user to reconsider.
-            # Do not move to 'rejected' yet. Stay in 'commitment_check'.
-            # Increment attempt counter for this step.
-            # self._increment_attempt_counter(application["id"]) # Handled by general step logic if they retry
-            
-            # Update DB with the insufficient commitment details, but don't change step or mark commitment_step true
-            try:
-                self.db.table("applications").update(db_update_payload).eq("id", application["id"]).execute()
-            except Exception as e:
-                logger.error(f"Failed to update insufficient commitment_details for app {application['id']}: {e}")
-                # Non-critical, proceed with response
-
             # Gemini's response should now be the "can you reconsider?" type due to updated prompt
             prompting_response = gemini_response.get("response")
             if not prompting_response: # Fallback

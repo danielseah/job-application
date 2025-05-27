@@ -1,7 +1,7 @@
 "use client"
 
 import type * as React from "react"
-import { LayoutDashboard, Briefcase, ShieldAlert, CalendarDays  } from "lucide-react"
+import { LayoutDashboard, Briefcase, ShieldAlert, CalendarDays, BookLock } from "lucide-react"
 import { NavProjects } from "@/components/sidebar-nav"
 import { NavUser } from "@/components/nav-user"
 import { ModeToggle } from "@/components/mode-toggler"
@@ -28,6 +28,7 @@ export function AppSidebar({
     { name: "Applications", url: "/applications", icon: Briefcase },
     { name: "Requirements", url: "/requirements", icon: ShieldAlert },
     { name: "Interview Slots", url: "/interview-slots", icon: CalendarDays },
+    { name: "Pass Office", url: "/pass-office", icon: BookLock },
   ]
 
   return (
