@@ -566,8 +566,8 @@ class ApplicationBot:
             return (f"Please complete our application form at {form_link_with_id} and let me know when you're done "
                     f"by replying with 'form completed' or 'done'.")
         
-        def _handle_waiting_form_submission_webhook(self, application: Dict, message: str,
-                                                message_type: str, message_data: Dict) -> Optional[str]:
+    def _handle_waiting_form_submission_webhook(self, application: Dict, message: str,
+                                            message_type: str, message_data: Dict) -> Optional[str]:
         # User messages while bot is waiting for form submission webhook.
         form_link_with_id = GOOGLE_FORM_LINK
         if GOOGLE_FORM_PREFILL_PARAM_APP_ID and application.get('id'):
