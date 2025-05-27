@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     const supabase = await createClient()
 
     // Extract phone number from form data to find the existing application
-    const phoneNumber = formData["Please provide us with your mobile phone number"] || ""
+    const phoneNumber = formData["Please provide us with your mobile phone number  (eg. 6512345678)"] || ""
 
     if (!phoneNumber) {
       return NextResponse.json({ error: "Phone number not found in form data" }, { status: 400 })

@@ -70,8 +70,6 @@ def root():
 # Interview scheduling and office information
 INTERVIEW_LINK_BASE = os.environ.get("INTERVIEW_LINK_BASE", "https://2b00-151-192-105-138.ngrok-free.app/interview")
 OFFICE_DIRECTIONS = """
-As our facility is located in a heavily guarded area within Singapore, kindly provide us your *full name as per NRIC and NRIC number* in advance to facilitate the clearance with the Airport Police.
-
 Our full address is 115 Airport Cargo Road, Changi Airport Cargo Building C, Level 7 Unit 18.
 
 Please alight at the Police Pass Office Bus Stop (95131) first to exchange for the visitor pass. 
@@ -84,8 +82,6 @@ After receiving the visitor pass, you may then take any bus such as 9, 19, 89 or
 Once you've cleared the protected area checkpoint, please alight at 3rd Cargo Agents Building (95051) which is three 3 bus stops after to access the area. Please note that the bus might skip certain stops when there is no one. So please do not count the number of times the bus stopped. 
 
 Finally, head over to the office lobby where there would be 3 elevators. Once you've arrived, kindly report to #07-18
-
-Thank you ☺ (Kindly wait for confirmation of your entry number before we can confirm your interview date and time slot for the next steps. This message is not a confirmation of the interview date)
 """
 
 # Google Form link
@@ -715,7 +711,10 @@ class ApplicationBot:
                         message_to_send = (
                             f"Dear {applicant_name},\n\n"
                             "We're pleased to inform you that your application has been reviewed and we'd like to invite you for an interview!\n\n"
-                            "To proceed with scheduling and to generate a visitor pass for office entry, please reply with your **Full Name (as per NRIC)** and **NRIC number** (e.g., S1234567A or 900101-10-1234)."
+                            "As our facility is located in a heavily guarded area within Singapore, kindly provide us your *full name as per NRIC and NRIC number* \
+                                in advance to facilitate the clearance with the Airport Police.\n"
+                            "To proceed with scheduling and to generate a visitor pass for office entry, *please reply with your **Full Name (as per NRIC)** and **NRIC number** (e.g., S1234567A or 900101-10-1234).*\n"
+                            "\n\nThank you ☺ (Kindly wait for confirmation of your entry number before we can confirm your interview date and time slot for the next steps. *This message is not a confirmation of the interview date)*"
                         )
                 elif decision == "rejected":
                     rejection_reason = webhook_data.get("reason", "we will not be proceeding with your application at this time")
@@ -760,7 +759,7 @@ class ApplicationBot:
                     confirmation_message = (
                         f"Hi {applicant_name},\n\n"
                         f"Your interview has been successfully scheduled for {interview_date_formatted} at {interview_time_formatted}.\n\n"
-                        f"Pass Office Code: {pass_office_code}\n\n"
+                        f"*Pass Office Code: {pass_office_code}*\n\n"
                         f"Important: When you arrive at the Airport Police Pass Office, please mention this code to obtain your visitor pass.\n\n"
                         f"Office Location & Directions:\n{OFFICE_DIRECTIONS}\n\n"
                         "Your visitor pass will be prepared based on the details you provided. "
