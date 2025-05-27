@@ -101,8 +101,8 @@ STEPS = {
     "confirm_intent": "commitment_check",
     "commitment_check": "request_resume",
     "request_resume": "request_form",
-    "request_form": "waiting_form_submission_webhook", # New: wait for form submission confirmation
-    "waiting_form_submission_webhook": "waiting_review", # After form confirmed, move to review
+    "request_form": "waiting_form_submission_webhook", # Move to waiting for webhook confirmation
+    "waiting_form_submission_webhook": "waiting_review", # After webhook confirms form, move to review
     "waiting_review": "request_interview_details",
     "request_interview_details": "waiting_interview_booking",
     "waiting_interview_booking": "confirmation",
@@ -305,7 +305,6 @@ class ApplicationBot:
             logger.error(f"Exception in _get_or_create_application for {phone_number}: {e}", exc_info=True)
             return None
 
-
     def _record_message(self, application_id: uuid.UUID, sender: str, content: str,
                        message_type: str, file_url: str = None, file_type: str = None) -> None:
         try:
@@ -328,7 +327,6 @@ class ApplicationBot:
                 logger.error(f"Error recording message for app {application_id}: {res.error}")
         except Exception as e:
             logger.error(f"Exception recording message for app {application_id}: {e}", exc_info=True)
-
 
     def _update_application_step(self, application_id: uuid.UUID, new_step: str,
                                additional_data: Optional[Dict] = None) -> bool:
@@ -522,19 +520,53 @@ class ApplicationBot:
 
     def _handle_request_form(self, application: Dict, message: str,
                            message_type: str, message_data: Dict) -> Optional[str]:
+        # Check if user is claiming they completed the form
         if re.search(r"form\s+(is\s+)?(completed|submitted)|(completed|submitted|done)(\s+the)?\s+form", message.lower()):
-            if not self._update_application_step(application["id"], STEPS["request_form"]): # Moves to waiting_form_submission_webhook
-                return "Sorry, system error. Please try confirming form completion again."
-            return "Thank you for letting me know you've submitted the form. We will verify your submission and get back to you once it's processed by our system. This might take a few moments."
+            # Check if the form was actually submitted via webhook
+            try:
+                # Look for form_submission event in webhook_events table
+                webhook_result = self.db.table("webhook_events").select("*") \
+                    .eq("application_id", application["id"]) \
+                    .eq("event_type", "form_submitted") \
+                    .execute()
+                
+                # If we found a form_submitted webhook event, the form was truly submitted
+                if webhook_result.data and len(webhook_result.data) > 0:
+                    # Form was actually submitted, update application step
+                    if not self._update_application_step(
+                        application["id"], 
+                        STEPS["request_form"], 
+                        {"form_step": True, "status": "form_received_pending_review"}
+                    ):
+                        return "Sorry, system error. Please try confirming form completion again."
+                    
+                    # Move to next step (waiting_review)
+                    if not self._update_application_step(application["id"], STEPS["waiting_form_submission_webhook"]):
+                        return "Sorry, system error. Please try confirming form completion again."
+                    
+                    return "Thank you! We have confirmed your form submission. Your application is now under review. We'll get back to you soon with the next steps."
+                else:
+                    # No form submission confirmed yet
+                    form_link_with_id = GOOGLE_FORM_LINK
+                    if GOOGLE_FORM_PREFILL_PARAM_APP_ID and application.get('id'):
+                        form_link_with_id = f"{GOOGLE_FORM_LINK}?{GOOGLE_FORM_PREFILL_PARAM_APP_ID}={application['id']}"
+                    
+                    return (f"I don't see your form submission in our system yet. Please make sure you've submitted the form at: "
+                            f"{form_link_with_id}\n\n"
+                            f"After submitting, please wait a few moments for our system to process it, then send 'form completed' again.")
+            except Exception as e:
+                logger.error(f"Error checking form submission for app {application['id']}: {e}", exc_info=True)
+                return "We're having trouble verifying your form submission. Please ensure you've submitted the form and try again in a few moments."
         else:
+            # If user didn't claim to complete the form, remind them to do so
             form_link_with_id = GOOGLE_FORM_LINK
             if GOOGLE_FORM_PREFILL_PARAM_APP_ID and application.get('id'):
                 form_link_with_id = f"{GOOGLE_FORM_LINK}?{GOOGLE_FORM_PREFILL_PARAM_APP_ID}={application['id']}"
 
             return (f"Please complete our application form at {form_link_with_id} and let me know when you're done "
                     f"by replying with 'form completed' or 'done'.")
-
-    def _handle_waiting_form_submission_webhook(self, application: Dict, message: str,
+        
+        def _handle_waiting_form_submission_webhook(self, application: Dict, message: str,
                                                 message_type: str, message_data: Dict) -> Optional[str]:
         # User messages while bot is waiting for form submission webhook.
         form_link_with_id = GOOGLE_FORM_LINK
